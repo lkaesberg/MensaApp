@@ -120,6 +120,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    lint {
+        // Workaround for lint crash with NonNullableMutableLiveDataDetector when using Kotlin ≥ 2.0
+        disable.add("NullSafeMutableLiveData")
+        checkDependencies = false
+    }
 }
 
 dependencies {
