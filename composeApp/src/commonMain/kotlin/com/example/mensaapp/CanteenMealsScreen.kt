@@ -234,9 +234,11 @@ private fun MealRow(mealDate: MealDate) {
     val meal = mealDate.meals
     val title = meal?.title ?: "Meal"
 
-    // URL of the placeholder image stored in Supabase bucket
-    val imageUrl = remember {
-        "${SupabaseConfig.SUPABASE_URL}/storage/v1/object/public/mensa-food/mensa.png"
+    // URL resolved based on image_path or fallback to placeholder
+    val imageUrl = remember(meal?.imagePath) {
+        val base = "${SupabaseConfig.SUPABASE_URL}/storage/v1/object/public/"
+        val path = "mensa-food/" + (meal?.imagePath?.takeIf { it.isNotBlank() } ?: "mensa.png")
+        base + path
     }
 
     ElevatedCard(

@@ -17,6 +17,7 @@ data class Meal(
     @SerialName("full_text") val fullText: String,
     val icons: List<String>? = null,
     @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("image_path") val imagePath: String? = null,
 )
 
 @Serializable
