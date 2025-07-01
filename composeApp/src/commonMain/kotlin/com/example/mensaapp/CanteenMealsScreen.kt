@@ -30,6 +30,10 @@ import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material.ExperimentalMaterialApi
 import com.russhwolf.settings.Settings
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.daysUntil
+import kotlinx.datetime.todayIn
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -45,6 +49,9 @@ fun CanteenMealsScreen(modifier: Modifier = Modifier) {
     var mealsByDate by remember { mutableStateOf<Map<LocalDate, List<MealDate>>>(emptyMap()) }
     var expanded by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
+
+    // Get current local date once for labelling and initial page selection
+    val today = remember { Clock.System.todayIn(TimeZone.currentSystemDefault()) }
 
     val pullRefreshState = rememberPullRefreshState(refreshing = refreshing, onRefresh = {
         val canteen = selectedCanteen ?: return@rememberPullRefreshState
@@ -108,9 +115,18 @@ fun CanteenMealsScreen(modifier: Modifier = Modifier) {
                 }
             } else {
                 val dates = mealsByDate.keys.sorted()
+
+                // Figure out which page corresponds to "today" (fallback to first page)
+                val todayIndex = remember(dates) {
+                    val idx = dates.indexOf(today)
+                    if (idx >= 0) idx else 0
+                }
                 // Pager is experimental
                 @OptIn(ExperimentalFoundationApi::class)
-                val pagerState = rememberPagerState(pageCount = { dates.size })
+                val pagerState = rememberPagerState(
+                    initialPage = todayIndex,
+                    pageCount = { dates.size }
+                )
 
                 val coroutineScopePager = rememberCoroutineScope()
 
@@ -128,7 +144,14 @@ fun CanteenMealsScreen(modifier: Modifier = Modifier) {
                             val dow = date.dayOfWeek
                             val day = date.dayOfMonth.toString().padStart(2, '0')
                             val month = date.monthNumber.toString().padStart(2, '0')
-                            "${dow.name.lowercase().replaceFirstChar { it.titlecase() }.take(3)} $day.$month"
+                            val base = "${dow.name.lowercase().replaceFirstChar { it.titlecase() }.take(3)} $day.$month"
+
+                            when (today.daysUntil(date)) {
+                                0 -> "$base (Today)"
+                                1 -> "$base (Tomorrow)"
+                                -1 -> "$base (Yesterday)"
+                                else -> base
+                            }
                         }
 
                         Row(
@@ -168,7 +191,14 @@ fun CanteenMealsScreen(modifier: Modifier = Modifier) {
                                             val dow = local.dayOfWeek.name.lowercase().replaceFirstChar { it.titlecase() }.take(3)
                                             val day = local.dayOfMonth.toString().padStart(2, '0')
                                             val month = local.monthNumber.toString().padStart(2, '0')
-                                            "$dow $day.$month"
+                                            val base = "$dow $day.$month"
+
+                                            when (today.daysUntil(local)) {
+                                                0 -> "$base (Today)"
+                                                1 -> "$base (Tomorrow)"
+                                                -1 -> "$base (Yesterday)"
+                                                else -> base
+                                            }
                                         }
                                         DropdownMenuItem(text = { Text(display) }, onClick = {
                                             menuExpanded = false

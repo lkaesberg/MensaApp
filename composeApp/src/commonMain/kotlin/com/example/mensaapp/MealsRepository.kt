@@ -4,6 +4,11 @@ import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.todayIn
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.minus
 
 class MealsRepository(private val postgrest: Postgrest) {
 
@@ -21,7 +26,12 @@ class MealsRepository(private val postgrest: Postgrest) {
             order("served_on", Order.ASCENDING)
         }.decodeList<MealDate>()
 
-        raw.groupBy { LocalDate.parse(it.servedOn) }
+        // Determine today's date once for filtering
+        val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+        val yesterday = today.minus(1, DateTimeUnit.DAY)
+
+        raw.filter { LocalDate.parse(it.servedOn) >= yesterday }
+            .groupBy { LocalDate.parse(it.servedOn) }
             .mapValues { entry ->
                 entry.value.sortedBy { it.category.lowercase() }
             }
