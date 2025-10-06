@@ -267,7 +267,9 @@ private fun MealRow(mealDate: MealDate) {
     // URL resolved based on image_path or fallback to placeholder
     val imageUrl = remember(meal?.imagePath) {
         val base = "${SupabaseConfig.SUPABASE_URL}/storage/v1/object/public/"
-        val path = "mensa-food/" + (meal?.imagePath?.takeIf { it.isNotBlank() } ?: "mensa.png")
+        val imagePath = meal?.imagePath
+        val imagePathGeneric = meal?.imagePathGeneric
+        val path = "mensa-food/" + (imagePath ?: imagePathGeneric ?: "mensa.png")
         base + path
     }
 

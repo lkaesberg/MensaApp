@@ -18,6 +18,7 @@ data class Meal(
     val icons: List<String>? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("image_path") val imagePath: String? = null,
+    @SerialName("image_path_generic") val imagePathGeneric: String? = null,
 )
 
 @Serializable
