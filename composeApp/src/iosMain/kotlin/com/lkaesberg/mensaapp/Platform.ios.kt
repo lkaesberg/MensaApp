@@ -1,4 +1,4 @@
-package com.example.mensaapp
+package com.lkaesberg.mensaapp
 
 import platform.UIKit.UIDevice
 

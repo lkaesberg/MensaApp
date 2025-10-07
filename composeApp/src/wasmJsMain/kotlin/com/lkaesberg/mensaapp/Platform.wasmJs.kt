@@ -1,4 +1,4 @@
-package com.example.mensaapp
+package com.lkaesberg.mensaapp
 
 class WasmPlatform : Platform {
     override val name: String = "Web with Kotlin/Wasm"

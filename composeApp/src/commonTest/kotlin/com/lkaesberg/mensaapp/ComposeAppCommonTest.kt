@@ -1,4 +1,4 @@
-package com.example.mensaapp
+package com.lkaesberg.mensaapp
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

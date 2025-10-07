@@ -1,4 +1,4 @@
-package com.example.mensaapp
+package com.lkaesberg.mensaapp
 
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.window.ComposeViewport

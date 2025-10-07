@@ -1,4 +1,4 @@
-package com.example.mensaapp
+package com.lkaesberg.mensaapp
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

@@ -1,4 +1,4 @@
-package com.example.mensaapp
+package com.lkaesberg.mensaapp
 
 /**
  * Configure your Supabase instance here. Replace the placeholder values with the
