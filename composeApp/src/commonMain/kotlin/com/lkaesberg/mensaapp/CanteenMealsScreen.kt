@@ -9,14 +9,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
@@ -24,11 +30,16 @@ import io.kamel.image.KamelImage
 import io.kamel.image.asyncPainterResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import com.russhwolf.settings.Settings
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
@@ -37,7 +48,11 @@ import kotlinx.datetime.todayIn
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
-fun CanteenMealsScreen(modifier: Modifier = Modifier) {
+fun CanteenMealsScreen(
+    modifier: Modifier = Modifier,
+    isDarkMode: Boolean = false,
+    onToggleDarkMode: () -> Unit = {}
+) {
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { MealsRepository(SupabaseProvider.client().postgrest) }
 
@@ -79,39 +94,169 @@ fun CanteenMealsScreen(modifier: Modifier = Modifier) {
 
     Box(modifier = modifier
         .fillMaxSize()
+        .background(
+            Brush.verticalGradient(
+                colors = listOf(
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                    MaterialTheme.colorScheme.surface
+                )
+            )
+        )
         .pullRefresh(pullRefreshState)) {
 
         Column(modifier = Modifier.fillMaxSize()) {
-            CenterAlignedTopAppBar(title = {
-                Text(text = "Mensa Menu", style = MaterialTheme.typography.titleLarge)
-            })
-
-            Spacer(Modifier.height(8.dp))
-
-            // Canteen selector
-            Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "Canteen:", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.width(8.dp))
-                Box {
-                    Button(onClick = { expanded = true }) {
-                        Text(selectedCanteen?.name ?: "Select")
+            // Modern header with gradient background
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.primary,
+                shadowElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.tertiary
+                                )
+                            )
+                        )
+                        .padding(top = 24.dp, bottom = 16.dp, start = 16.dp, end = 16.dp)
+                ) {
+                    // Title row with dark mode toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🍽️ Mensa Menu",
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 26.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        
+                        // Dark mode toggle
+                        IconButton(
+                            onClick = onToggleDarkMode,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.2f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .padding(6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (isDarkMode) "☀️" else "🌙",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                }
+                            }
+                        }
                     }
-                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        canteens.forEach { canteen ->
-                            DropdownMenuItem(text = { Text(canteen.name) }, onClick = {
-                                selectedCanteen = canteen
-                                settings.putString("selected_canteen_id", canteen.id)
-                                expanded = false
-                            })
+                    
+                    Spacer(Modifier.height(12.dp))
+                    
+                    // Compact canteen selector
+                    OutlinedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.outlinedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+                        ),
+                        border = CardDefaults.outlinedCardBorder().copy(
+                            width = 1.5.dp,
+                            brush = Brush.linearGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.tertiary,
+                                    MaterialTheme.colorScheme.secondary
+                                )
+                            )
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { expanded = true }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "📍",
+                                    style = MaterialTheme.typography.titleLarge
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = selectedCanteen?.name ?: "Select Canteen",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text("▼", style = MaterialTheme.typography.bodyLarge)
+                        }
+                        
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false },
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            canteens.forEach { canteen ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("📍", modifier = Modifier.padding(end = 8.dp))
+                                            Text(
+                                                canteen.name,
+                                                style = MaterialTheme.typography.bodyLarge
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedCanteen = canteen
+                                        settings.putString("selected_canteen_id", canteen.id)
+                                        expanded = false
+                                    }
+                                )
+                            }
                         }
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
+
+            Spacer(Modifier.height(12.dp))
 
             if (mealsByDate.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No meals available.")
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "🍽️",
+                            style = MaterialTheme.typography.displayLarge,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                        Text(
+                            "No meals available",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Medium
+                            )
+                        )
+                        Text(
+                            "Check back later for updates",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
                 }
             } else {
                 val dates = mealsByDate.keys.sorted()
@@ -154,66 +299,141 @@ fun CanteenMealsScreen(modifier: Modifier = Modifier) {
                             }
                         }
 
-                        Row(
+                        // Compact date header
+                        Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp, horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            shadowElevation = 2.dp
                         ) {
-                            val arrowColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-
-                            if (page > 0) {
-                                Text("‹", color = arrowColor, style = MaterialTheme.typography.titleMedium)
-                            } else {
-                                Spacer(Modifier.width(16.dp))
-                            }
-
                             Box(
                                 modifier = Modifier
-                                    .weight(1f, fill = false),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .padding(vertical = 10.dp, horizontal = 12.dp)
                             ) {
-                                Text(
-                                    text = formatted,
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    modifier = Modifier.clickable { menuExpanded = true },
-                                    textAlign = TextAlign.Center
-                                )
-
-                                // Menu anchored to the date Text (center of the row)
-                                DropdownMenu(
-                                    expanded = menuExpanded,
-                                    onDismissRequest = { menuExpanded = false }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    dates.forEachIndexed { index, d ->
-                                        val display = d.let { local ->
-                                            val dow = local.dayOfWeek.name.lowercase().replaceFirstChar { it.titlecase() }.take(3)
-                                            val day = local.dayOfMonth.toString().padStart(2, '0')
-                                            val month = local.monthNumber.toString().padStart(2, '0')
-                                            val base = "$dow $day.$month"
+                                    // Left arrow - clickable
+                                    if (page > 0) {
+                                        Text(
+                                            "‹",
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            style = MaterialTheme.typography.headlineMedium.copy(
+                                                fontWeight = FontWeight.Bold
+                                            ),
+                                            modifier = Modifier
+                                                .alpha(0.8f)
+                                                .clickable {
+                                                    coroutineScopePager.launch {
+                                                        pagerState.animateScrollToPage(page - 1)
+                                                    }
+                                                }
+                                                .padding(6.dp)
+                                        )
+                                    } else {
+                                        Spacer(Modifier.width(20.dp))
+                                    }
 
-                                            when (today.daysUntil(local)) {
-                                                0 -> "$base (Today)"
-                                                1 -> "$base (Tomorrow)"
-                                                -1 -> "$base (Yesterday)"
-                                                else -> base
+                                    // Center date with dropdown
+                                    Box(
+                                        modifier = Modifier.weight(1f),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Surface(
+                                            modifier = Modifier.clickable { menuExpanded = true },
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "📅",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    modifier = Modifier.padding(end = 6.dp)
+                                                )
+                                                Text(
+                                                    text = formatted,
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        fontWeight = FontWeight.Bold
+                                                    ),
+                                                    textAlign = TextAlign.Center,
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                                Text(
+                                                    text = " ▼",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    modifier = Modifier.alpha(0.6f)
+                                                )
                                             }
                                         }
-                                        DropdownMenuItem(text = { Text(display) }, onClick = {
-                                            menuExpanded = false
-                                            coroutineScopePager.launch {
-                                                pagerState.animateScrollToPage(index)
+
+                                        DropdownMenu(
+                                            expanded = menuExpanded,
+                                            onDismissRequest = { menuExpanded = false }
+                                        ) {
+                                            dates.forEachIndexed { index, d ->
+                                                val display = d.let { local ->
+                                                    val dow = local.dayOfWeek.name.lowercase().replaceFirstChar { it.titlecase() }.take(3)
+                                                    val day = local.dayOfMonth.toString().padStart(2, '0')
+                                                    val month = local.monthNumber.toString().padStart(2, '0')
+                                                    val base = "$dow $day.$month"
+
+                                                    when (today.daysUntil(local)) {
+                                                        0 -> "$base (Today)"
+                                                        1 -> "$base (Tomorrow)"
+                                                        -1 -> "$base (Yesterday)"
+                                                        else -> base
+                                                    }
+                                                }
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text("📅", modifier = Modifier.padding(end = 8.dp))
+                                                            Text(
+                                                                display,
+                                                                style = MaterialTheme.typography.bodyLarge
+                                                            )
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        menuExpanded = false
+                                                        coroutineScopePager.launch {
+                                                            pagerState.animateScrollToPage(index)
+                                                        }
+                                                    }
+                                                )
                                             }
-                                        })
+                                        }
+                                    }
+
+                                    // Right arrow - clickable
+                                    if (page < dates.lastIndex) {
+                                        Text(
+                                            "›",
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            style = MaterialTheme.typography.headlineMedium.copy(
+                                                fontWeight = FontWeight.Bold
+                                            ),
+                                            modifier = Modifier
+                                                .alpha(0.8f)
+                                                .clickable {
+                                                    coroutineScopePager.launch {
+                                                        pagerState.animateScrollToPage(page + 1)
+                                                    }
+                                                }
+                                                .padding(6.dp)
+                                        )
+                                    } else {
+                                        Spacer(Modifier.width(20.dp))
                                     }
                                 }
-                            }
-
-                            if (page < dates.lastIndex) {
-                                Text("›", color = arrowColor, style = MaterialTheme.typography.titleMedium)
-                            } else {
-                                Spacer(Modifier.width(16.dp))
                             }
                         }
                     }
@@ -228,26 +448,54 @@ fun CanteenMealsScreen(modifier: Modifier = Modifier) {
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
 
+                // Modern page indicators
                 Row(
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     repeat(dates.size) { index ->
-                        val color = if (pagerState.currentPage == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        val isSelected = pagerState.currentPage == index
+                        val width by animateDpAsState(
+                            targetValue = if (isSelected) 24.dp else 8.dp,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                            )
+                        )
+                        val color = if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                        }
+                        
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
+                                .width(width)
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
                                 .background(color)
                         )
                     }
                 }
 
-                Text("← swipe →", style = MaterialTheme.typography.bodySmall, modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 4.dp))
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(top = 8.dp, bottom = 12.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                ) {
+                    Text(
+                        "← swipe →",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                    )
+                }
             }
         }
 
@@ -262,10 +510,18 @@ fun CanteenMealsScreen(modifier: Modifier = Modifier) {
 @Composable
 private fun MealRow(mealDate: MealDate) {
     val meal = mealDate.meals
-    val title = meal?.title ?: "Meal"
+    
+    // Filter out text in brackets from title and description, replace with space and trim
+    val title = remember(meal?.title) {
+        meal?.title?.replace(Regex("\\([^)]*\\)"), " ")?.replace(Regex("\\s+"), " ")?.trim() ?: "Meal"
+    }
+    
+    val fullText = remember(meal?.fullText) {
+        meal?.fullText?.replace(Regex("\\([^)]*\\)"), " ")?.replace(Regex("\\s+"), " ")?.trim() ?: ""
+    }
 
     // URL resolved based on image_path or fallback to placeholder
-    val imageUrl = remember(meal?.imagePath) {
+    val imageUrl = remember(meal?.id, meal?.imagePath, meal?.imagePathGeneric) {
         val base = "${SupabaseConfig.SUPABASE_URL}/storage/v1/object/public/"
         val imagePath = meal?.imagePath
         val imagePathGeneric = meal?.imagePathGeneric
@@ -273,71 +529,242 @@ private fun MealRow(mealDate: MealDate) {
         base + path
     }
 
-    ElevatedCard(
+    var showImageDialog by remember { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(false) }
+    
+    // Animated values for card expansion
+    val scale by animateFloatAsState(
+        targetValue = if (isExpanded) 1.01f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        )
+    )
+
+    // Image fullscreen dialog
+    if (showImageDialog) {
+        AlertDialog(
+            onDismissRequest = { showImageDialog = false },
+            confirmButton = {
+                TextButton(onClick = { showImageDialog = false }) {
+                    Text("Close")
+                }
+            },
+            title = {
+                Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(400.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    KamelImage(
+                        resource = asyncPainterResource(data = imageUrl),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        )
+    }
+
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp)
+            .padding(vertical = 8.dp)
+            .scale(scale),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isExpanded) 8.dp else 4.dp
+        ),
+        onClick = { isExpanded = !isExpanded }
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            var imageExpanded by remember { mutableStateOf(false) }
-            val imageSize by animateDpAsState(
-                targetValue = if (imageExpanded) 160.dp else 80.dp,
-                animationSpec = tween(durationMillis = 300)
-            )
-            // First row: image + title / category / icons
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Image on the left
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Small square image on the left
+            Box(
+                modifier = Modifier
+                    .size(100.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { showImageDialog = true }
+            ) {
                 KamelImage(
                     resource = asyncPainterResource(data = imageUrl),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(imageSize)
-                        .clip(MaterialTheme.shapes.medium)
-                        .clickable { imageExpanded = !imageExpanded }
+                    modifier = Modifier.fillMaxSize()
                 )
-
-                Spacer(Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    // Title and icons in a single row
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-
-                        meal?.icons?.takeIf { it.isNotEmpty() }?.forEach { iconKey ->
-                            val emoji = iconEmoji[iconKey.lowercase()] ?: "❓"
-                            Text(emoji, modifier = Modifier.padding(start = 4.dp))
-                        }
-                    }
-
-                    Spacer(Modifier.height(4.dp))
-
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(mealDate.category) }
+                
+                // Subtle gradient overlay
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.3f)
+                                ),
+                                startY = 0f,
+                                endY = Float.POSITIVE_INFINITY
+                            )
+                        )
+                )
+                
+                // Expand/fullscreen indicator
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                ) {
+                    Text(
+                        text = "🔍",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(4.dp)
                     )
                 }
             }
 
-            // Second row: full description (and optional note)
-            Spacer(Modifier.height(8.dp))
+            // Content section - right side of the row
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 100.dp)
+            ) {
+                // Title
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    ),
+                    maxLines = if (isExpanded) Int.MAX_VALUE else 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                
+                Spacer(Modifier.height(8.dp))
+                
+                // Category badge and icons in a row
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Category badge
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                    ) {
+                        Text(
+                            text = mealDate.category,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                    
+                    // Icons next to category badge
+                    meal?.icons?.takeIf { it.isNotEmpty() }?.let { icons ->
+                        icons.take(4).forEach { iconKey ->
+                            val (emoji, label) = iconEmojiWithLabel[iconKey.lowercase()] 
+                                ?: ("❓" to iconKey)
+                            
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = emoji,
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
 
-            Text(meal?.fullText ?: "", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
 
-            mealDate.note?.takeIf { it.isNotBlank() }?.let {
-                Spacer(Modifier.height(4.dp))
-                Text(it, style = MaterialTheme.typography.bodySmall)
+                // Full description
+                Text(
+                    text = fullText,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        lineHeight = 18.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (isExpanded) Int.MAX_VALUE else 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                // Note with icon if present
+                mealDate.note?.takeIf { it.isNotBlank() }?.let { note ->
+                    Spacer(Modifier.height(8.dp))
+                    
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(8.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text(
+                                text = "ℹ️",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(end = 6.dp)
+                            )
+                            Text(
+                                text = note,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    lineHeight = 16.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                maxLines = if (isExpanded) Int.MAX_VALUE else 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+                
+                // Expand/collapse hint
+                if (!isExpanded && fullText.length > 100) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Tap to see more",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        fontSize = 11.sp
+                    )
+                }
             }
         }
     }
 }
 
-// Simple icon → emoji mapping for quick visualization
-private val iconEmoji = mapOf(
-    "vegetarisch" to "🥕",
-    "vegan" to "🥗",
-    "fleisch" to "🥩",
-    "strohschwein" to "🐷",
-    "leinetalerrind" to "🐄",
-    "fisch" to "🐟",
+// Enhanced icon → emoji mapping with labels
+private val iconEmojiWithLabel = mapOf(
+    "vegetarisch" to ("🥕" to "Vegetarian"),
+    "vegan" to ("🌱" to "Vegan"),
+    "fleisch" to ("🥩" to "Meat"),
+    "strohschwein" to ("🐷" to "Pork"),
+    "leinetalerrind" to ("🐄" to "Beef"),
+    "fisch" to ("🐟" to "Fish"),
+    "bio" to ("🌿" to "Organic"),
+    "regional" to ("🏡" to "Regional"),
+    "klimaessen" to ("🌍" to "Climate-friendly"),
 ) 
