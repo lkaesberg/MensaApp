@@ -3,15 +3,21 @@ package com.lkaesberg.mensaapp
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,12 +64,20 @@ fun CanteenMealsScreen(
 
     // Persistent settings storage
     val settings = remember { Settings() }
+    val favoritesManager = remember { FavoritesManager(settings) }
+    val favoriteIds by favoritesManager.favorites.collectAsState()
 
     var canteens by remember { mutableStateOf<List<Canteen>>(emptyList()) }
     var selectedCanteen by remember { mutableStateOf<Canteen?>(null) }
     var mealsByDate by remember { mutableStateOf<Map<LocalDate, List<MealDate>>>(emptyMap()) }
     var expanded by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
+    
+    // Search and filter state
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedDietaryFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var isWeeklyView by remember { mutableStateOf(false) }
+    var showSearchBar by remember { mutableStateOf(false) }
 
     // Get current local date once for labelling and initial page selection
     val today = remember { Clock.System.todayIn(TimeZone.currentSystemDefault()) }
@@ -122,7 +136,8 @@ fun CanteenMealsScreen(
                                 )
                             )
                         )
-                        .padding(top = 24.dp, bottom = 16.dp, start = 16.dp, end = 16.dp)
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(top = 8.dp, bottom = 16.dp, start = 16.dp, end = 16.dp)
                 ) {
                     // Title row with dark mode toggle
                     Row(
@@ -165,68 +180,210 @@ fun CanteenMealsScreen(
                     
                     Spacer(Modifier.height(12.dp))
                     
-                    // Compact canteen selector
-                    OutlinedCard(
+                    // Canteen selector with search and view toggle buttons
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.outlinedCardColors(
-                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
-                        ),
-                        border = CardDefaults.outlinedCardBorder().copy(
-                            width = 1.5.dp,
-                            brush = Brush.linearGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.tertiary,
-                                    MaterialTheme.colorScheme.secondary
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Compact canteen selector
+                        OutlinedCard(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.outlinedCardColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+                            ),
+                            border = CardDefaults.outlinedCardBorder().copy(
+                                width = 1.5.dp,
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.tertiary,
+                                        MaterialTheme.colorScheme.secondary
+                                    )
                                 )
                             )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { expanded = true }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "📍",
+                                        style = MaterialTheme.typography.titleLarge
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = selectedCanteen?.name ?: "Select Canteen",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Text("▼", style = MaterialTheme.typography.bodyLarge)
+                            }
+                            
+                            DropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false },
+                                modifier = Modifier.fillMaxWidth(0.9f)
+                            ) {
+                                canteens.forEach { canteen ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("📍", modifier = Modifier.padding(end = 8.dp))
+                                                Text(
+                                                    canteen.name,
+                                                    style = MaterialTheme.typography.bodyLarge
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            selectedCanteen = canteen
+                                            settings.putString("selected_canteen_id", canteen.id)
+                                            expanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        
+                        // Search button
+                        IconButton(
+                            onClick = { showSearchBar = !showSearchBar },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (showSearchBar)
+                                    MaterialTheme.colorScheme.primaryContainer
+                                else
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .padding(8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("🔍", style = MaterialTheme.typography.titleMedium)
+                                }
+                            }
+                        }
+                        
+                        // View toggle button
+                        IconButton(
+                            onClick = { isWeeklyView = !isWeeklyView },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isWeeklyView) 
+                                    MaterialTheme.colorScheme.primaryContainer 
+                                else 
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .padding(8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        if (isWeeklyView) "📋" else "📅",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Search bar (when active)
+                    if (showSearchBar) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Search meals...") },
+                            leadingIcon = { Text("🔍") },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Text("✕")
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            shape = RoundedCornerShape(12.dp)
                         )
-                    ) {
+                    }
+                    
+                    // Dietary filter chips
+                    if (mealsByDate.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { expanded = true }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "📍",
-                                    style = MaterialTheme.typography.titleLarge
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = selectedCanteen?.name ?: "Select Canteen",
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.SemiBold
-                                    ),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            Text("▼", style = MaterialTheme.typography.bodyLarge)
-                        }
-                        
-                        DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false },
-                            modifier = Modifier.fillMaxWidth(0.9f)
-                        ) {
-                            canteens.forEach { canteen ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("📍", modifier = Modifier.padding(end = 8.dp))
+                            val filters = listOf(
+                                "vegan" to "🌱",
+                                "vegetarisch" to "🥕",
+                                "fleisch" to "🥩",
+                                "fisch" to "🐟"
+                            )
+                            
+                            filters.forEach { (filter, emoji) ->
+                                FilterChip(
+                                    selected = selectedDietaryFilters.contains(filter),
+                                    onClick = {
+                                        selectedDietaryFilters = if (selectedDietaryFilters.contains(filter)) {
+                                            selectedDietaryFilters - filter
+                                        } else {
+                                            selectedDietaryFilters + filter
+                                        }
+                                    },
+                                    label = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(emoji)
                                             Text(
-                                                canteen.name,
-                                                style = MaterialTheme.typography.bodyLarge
+                                                filter.replaceFirstChar { it.titlecase() },
+                                                style = MaterialTheme.typography.labelMedium
                                             )
                                         }
                                     },
-                                    onClick = {
-                                        selectedCanteen = canteen
-                                        settings.putString("selected_canteen_id", canteen.id)
-                                        expanded = false
-                                    }
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                                    )
+                                )
+                            }
+                            
+                            // Clear filters button
+                            if (selectedDietaryFilters.isNotEmpty()) {
+                                AssistChip(
+                                    onClick = { selectedDietaryFilters = emptySet() },
+                                    label = { Text("Clear") },
+                                    leadingIcon = { Text("✕") },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                                    )
                                 )
                             }
                         }
@@ -266,25 +423,63 @@ fun CanteenMealsScreen(
                     val idx = dates.indexOf(today)
                     if (idx >= 0) idx else 0
                 }
-                // Pager is experimental
-                @OptIn(ExperimentalFoundationApi::class)
-                val pagerState = rememberPagerState(
-                    initialPage = todayIndex,
-                    pageCount = { dates.size }
-                )
+                
+                // Helper function to filter and sort meals
+                fun filterAndSortMeals(meals: List<MealDate>): List<MealDate> {
+                    var filtered = meals
+                    
+                    // Apply search filter
+                    if (searchQuery.isNotEmpty()) {
+                        filtered = filtered.filter { mealDate ->
+                            val meal = mealDate.meals
+                            val title = meal?.title?.lowercase() ?: ""
+                            val fullText = meal?.fullText?.lowercase() ?: ""
+                            val query = searchQuery.lowercase()
+                            title.contains(query) || fullText.contains(query)
+                        }
+                    }
+                    
+                    // Apply dietary filters
+                    if (selectedDietaryFilters.isNotEmpty()) {
+                        filtered = filtered.filter { mealDate ->
+                            val mealIcons = mealDate.meals?.icons?.map { it.lowercase() } ?: emptyList()
+                            selectedDietaryFilters.any { filter -> mealIcons.contains(filter) }
+                        }
+                    }
+                    
+                    // Sort: favorites first, then by category (desserts always last)
+                    return filtered.sortedWith(compareBy(
+                        { mealDate -> !favoriteIds.contains(mealDate.meals?.title) }, // Favorites first (false < true)
+                        { mealDate -> 
+                            val category = mealDate.category.lowercase()
+                            when {
+                                category.contains("dessert") || category.contains("nachtisch") -> "zzz_dessert" // Force dessert to end
+                                else -> mealDate.category
+                            }
+                        }
+                    ))
+                }
 
-                val coroutineScopePager = rememberCoroutineScope()
+                if (!isWeeklyView) {
+                    // Pager view (original)
+                    @OptIn(ExperimentalFoundationApi::class)
+                    val pagerState = rememberPagerState(
+                        initialPage = todayIndex,
+                        pageCount = { dates.size }
+                    )
 
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize()
-                ) { page ->
-                    val date = dates[page]
-                    val list = mealsByDate[date].orEmpty()
+                    val coroutineScopePager = rememberCoroutineScope()
 
-                    var menuExpanded by remember { mutableStateOf(false) }
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { page ->
+                        val date = dates[page]
+                        val list = filterAndSortMeals(mealsByDate[date].orEmpty())
 
-                    val headerRow: @Composable () -> Unit = {
+                        var menuExpanded by remember { mutableStateOf(false) }
+
+                        val headerRow: @Composable () -> Unit = {
                         val formatted = remember(date) {
                             val dow = date.dayOfWeek
                             val day = date.dayOfMonth.toString().padStart(2, '0')
@@ -441,60 +636,125 @@ fun CanteenMealsScreen(
                     Column(modifier = Modifier.fillMaxSize()) {
                         headerRow()
                         LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                            items(list) { mealDate ->
-                                MealRow(mealDate)
+                            items(list, key = { it.id }) { mealDate ->
+                                MealRow(
+                                    mealDate = mealDate,
+                                    isFavorite = favoriteIds.contains(mealDate.meals?.title),
+                                    onToggleFavorite = { mealDate.meals?.title?.let { favoritesManager.toggleFavorite(it) } }
+                                )
                             }
                         }
                     }
                 }
 
-                Spacer(Modifier.height(12.dp))
+                    // Page indicators for pager view
+                    Spacer(Modifier.height(12.dp))
 
-                // Modern page indicators
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    repeat(dates.size) { index ->
-                        val isSelected = pagerState.currentPage == index
-                        val width by animateDpAsState(
-                            targetValue = if (isSelected) 24.dp else 8.dp,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessLow
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        repeat(dates.size) { index ->
+                            val isSelected = pagerState.currentPage == index
+                            val width by animateDpAsState(
+                                targetValue = if (isSelected) 24.dp else 8.dp,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessLow
+                                )
                             )
-                        )
-                        val color = if (isSelected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            val color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .width(width)
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(color)
+                            )
                         }
-                        
-                        Box(
-                            modifier = Modifier
-                                .width(width)
-                                .height(8.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(color)
+                    }
+
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .padding(top = 8.dp, bottom = 12.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                    ) {
+                        Text(
+                            "← swipe →",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                         )
                     }
-                }
+                } else {
+                    // Weekly view - all days in one list
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        dates.forEach { date ->
+                            val list = filterAndSortMeals(mealsByDate[date].orEmpty())
+                            
+                            if (list.isNotEmpty()) {
+                                item(key = "header_$date") {
+                                    val formatted = remember(date) {
+                                        val dow = date.dayOfWeek
+                                        val day = date.dayOfMonth.toString().padStart(2, '0')
+                                        val month = date.monthNumber.toString().padStart(2, '0')
+                                        val base = "${dow.name.lowercase().replaceFirstChar { it.titlecase() }} $day.$month"
 
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(top = 8.dp, bottom = 12.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                ) {
-                    Text(
-                        "← swipe →",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
+                                        when (today.daysUntil(date)) {
+                                            0 -> "$base (Today)"
+                                            1 -> "$base (Tomorrow)"
+                                            -1 -> "$base (Yesterday)"
+                                            else -> base
+                                        }
+                                    }
+                                    
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 12.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        shadowElevation = 2.dp
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("📅", style = MaterialTheme.typography.titleMedium)
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(
+                                                text = formatted,
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontWeight = FontWeight.Bold
+                                                ),
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
+                                }
+                                
+                                items(list, key = { it.id }) { mealDate ->
+                                    MealRow(
+                                        mealDate = mealDate,
+                                        isFavorite = favoriteIds.contains(mealDate.meals?.title),
+                                        onToggleFavorite = { mealDate.meals?.title?.let { favoritesManager.toggleFavorite(it) } }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -508,7 +768,11 @@ fun CanteenMealsScreen(
 }
 
 @Composable
-private fun MealRow(mealDate: MealDate) {
+private fun MealRow(
+    mealDate: MealDate,
+    isFavorite: Boolean = false,
+    onToggleFavorite: () -> Unit = {}
+) {
     val meal = mealDate.meals
     
     // Filter out text in brackets from title and description, replace with space and trim
@@ -531,6 +795,7 @@ private fun MealRow(mealDate: MealDate) {
 
     var showImageDialog by remember { mutableStateOf(false) }
     var isExpanded by remember { mutableStateOf(false) }
+    var isTextTruncated by remember { mutableStateOf(false) }
     
     // Animated values for card expansion
     val scale by animateFloatAsState(
@@ -643,16 +908,43 @@ private fun MealRow(mealDate: MealDate) {
                     .weight(1f)
                     .heightIn(min = 100.dp)
             ) {
-                // Title
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    ),
-                    maxLines = if (isExpanded) Int.MAX_VALUE else 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // Title with favorite button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        ),
+                        maxLines = if (isExpanded) Int.MAX_VALUE else 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                    )
+                    
+                    // Favorite button
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isFavorite) 
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                        else 
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.3f),
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clickable(onClick = onToggleFavorite)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = if (isFavorite) "⭐" else "☆",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
                 
                 Spacer(Modifier.height(8.dp))
                 
@@ -708,7 +1000,12 @@ private fun MealRow(mealDate: MealDate) {
                     ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = if (isExpanded) Int.MAX_VALUE else 3,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { textLayoutResult ->
+                        if (!isExpanded) {
+                            isTextTruncated = textLayoutResult.hasVisualOverflow
+                        }
+                    }
                 )
 
                 // Note with icon if present
@@ -742,7 +1039,7 @@ private fun MealRow(mealDate: MealDate) {
                 }
                 
                 // Expand/collapse hint
-                if (!isExpanded && fullText.length > 100) {
+                if (!isExpanded && isTextTruncated) {
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = "Tap to see more",
