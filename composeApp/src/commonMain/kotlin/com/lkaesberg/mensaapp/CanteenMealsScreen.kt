@@ -25,6 +25,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -79,7 +80,7 @@ fun CanteenMealsScreen(
     val now = remember { Clock.System.now().toLocalDateTime(systemTz) }
     val today = remember(now) { now.date }
     val initialDate = remember(now) {
-        if (now.hour >= 14) today.plus(1, DateTimeUnit.DAY) else today
+        if (now.hour > 14) today.plus(1, DateTimeUnit.DAY) else today
     }
 
     // Data Loading
@@ -129,13 +130,48 @@ fun CanteenMealsScreen(
                 selectedDietaryFilters.any { filter -> mealIcons.contains(filter) }
             }
         }
-        return filtered.sortedWith(compareBy(
+        return filtered
+    }
+
+    fun separateMealsByTime(meals: List<MealDate>): Pair<List<MealDate>, List<MealDate>> {
+        val lunchMeals = mutableListOf<MealDate>()
+        val afternoonMeals = mutableListOf<MealDate>()
+
+        meals.forEach { meal ->
+            val note = meal.note?.lowercase() ?: ""
+            val isAfternoonOnly = note.contains("nachmittag")
+            val isAllTime = note.isBlank()
+
+            if (isAfternoonOnly) {
+                // Only afternoon
+                afternoonMeals.add(meal)
+            } else if (isAllTime) {
+                // Available at all times - add to both
+                lunchMeals.add(meal)
+                afternoonMeals.add(meal)
+            } else {
+                // Lunch only
+                lunchMeals.add(meal)
+            }
+        }
+
+        val lunchSorted = lunchMeals.sortedWith(compareBy(
             { !favoriteIds.contains(it.meals?.title) },
             {
                 val cat = it.category.lowercase()
                 if (cat.contains("dessert") || cat.contains("nachtisch")) "zzz" else cat
             }
         ))
+
+        val afternoonSorted = afternoonMeals.sortedWith(compareBy(
+            { !favoriteIds.contains(it.meals?.title) },
+            {
+                val cat = it.category.lowercase()
+                if (cat.contains("dessert") || cat.contains("nachtisch")) "zzz" else cat
+            }
+        ))
+
+        return Pair(lunchSorted, afternoonSorted)
     }
 
     Scaffold(
@@ -200,7 +236,8 @@ fun CanteenMealsScreen(
                             mealsByDate = mealsByDate,
                             favoriteIds = favoriteIds,
                             onToggleFavorite = { favoritesManager.toggleFavorite(it) },
-                            filterMeals = ::filterAndSortMeals
+                            filterMeals = ::filterAndSortMeals,
+                            separateMealsByTime = ::separateMealsByTime
                         )
                     }
                 }
@@ -377,7 +414,8 @@ private fun DailyView(
     mealsByDate: Map<LocalDate, List<MealDate>>,
     favoriteIds: Set<String>,
     onToggleFavorite: (String) -> Unit,
-    filterMeals: (List<MealDate>) -> List<MealDate>
+    filterMeals: (List<MealDate>) -> List<MealDate>,
+    separateMealsByTime: (List<MealDate>) -> Pair<List<MealDate>, List<MealDate>>
 ) {
     val pagerState = rememberPagerState(initialPage = initialPageIndex) { dates.size }
     val coroutineScope = rememberCoroutineScope()
@@ -400,6 +438,15 @@ private fun DailyView(
         ) { page ->
             val date = dates[page]
             val meals = filterMeals(mealsByDate[date].orEmpty())
+            val (lunchMeals, afternoonMeals) = separateMealsByTime(meals)
+
+            // Check if we should dim lunch items (past 14:30 on current day and afternoon meals exist)
+            val systemTz = TimeZone.currentSystemDefault()
+            val now = Clock.System.now().toLocalDateTime(systemTz)
+            val today = now.date
+            val isToday = date == today
+            val isPastLunchTime = now.hour > 14 || (now.hour == 14 && now.minute >= 30)
+            val shouldDimLunch = isToday && isPastLunchTime && afternoonMeals.isNotEmpty()
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -409,12 +456,35 @@ private fun DailyView(
                 if (meals.isEmpty()) {
                     item { EmptyState("No meals for this day") }
                 } else {
-                    items(meals, key = { it.id }) { meal ->
-                        BeautifulMealCard(
-                            mealDate = meal,
-                            isFavorite = favoriteIds.contains(meal.meals?.title),
-                            onToggleFavorite = { meal.meals?.title?.let(onToggleFavorite) }
-                        )
+                    // Lunch section
+                    if (lunchMeals.isNotEmpty()) {
+                        items(lunchMeals, key = { "lunch_${it.id}" }) { meal ->
+                            BeautifulMealCard(
+                                mealDate = meal,
+                                isFavorite = favoriteIds.contains(meal.meals?.title),
+                                onToggleFavorite = { meal.meals?.title?.let(onToggleFavorite) },
+                                isDimmed = shouldDimLunch
+                            )
+                        }
+                    }
+
+                    // Separator
+                    if (afternoonMeals.isNotEmpty() && lunchMeals.isNotEmpty()) {
+                        item(key = "separator_$date") {
+                            TimeSeparator("Afternoon")
+                        }
+                    }
+
+                    // Afternoon section
+                    if (afternoonMeals.isNotEmpty()) {
+                        items(afternoonMeals, key = { "afternoon_${it.id}" }) { meal ->
+                            BeautifulMealCard(
+                                mealDate = meal,
+                                isFavorite = favoriteIds.contains(meal.meals?.title),
+                                onToggleFavorite = { meal.meals?.title?.let(onToggleFavorite) },
+                                isDimmed = false
+                            )
+                        }
                     }
                 }
                 item { Spacer(Modifier.height(80.dp)) } // Bottom padding
@@ -453,6 +523,31 @@ private fun ScrollableDateStrip(
                 onClick = { onDateSelected(index) }
             )
         }
+    }
+}
+
+@Composable
+private fun TimeSeparator(label: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp)
+        )
+        HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
     }
 }
 
@@ -542,7 +637,8 @@ private fun BeautifulMealCard(
     mealDate: MealDate,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isDimmed: Boolean = false
 ) {
     val meal = mealDate.meals
     var expanded by remember { mutableStateOf(false) }
@@ -564,7 +660,8 @@ private fun BeautifulMealCard(
         modifier = modifier
             .fillMaxWidth()
             .animateContentSize()
-            .clickable { expanded = !expanded },
+            .clickable { expanded = !expanded }
+            .then(if (isDimmed) Modifier.alpha(0.5f) else Modifier),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
