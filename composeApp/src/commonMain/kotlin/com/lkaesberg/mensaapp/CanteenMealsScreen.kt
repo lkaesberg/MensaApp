@@ -126,7 +126,16 @@ fun CanteenMealsScreen(
         if (selectedDietaryFilters.isNotEmpty()) {
             filtered = filtered.filter { mealDate ->
                 val mealIcons = mealDate.meals?.icons?.map { it.lowercase() } ?: emptyList()
-                selectedDietaryFilters.any { filter -> mealIcons.contains(filter) }
+                selectedDietaryFilters.any { filter ->
+                    when {
+                        // Vegetarisch filter should also match vegan meals
+                        filter == "vegetarisch" && (mealIcons.contains("vegetarisch") || mealIcons.contains("vegan")) -> true
+                        // Fleisch filter should also match specific meat types
+                        filter == "fleisch" && (mealIcons.contains("fleisch") || mealIcons.contains("strohschwein") || mealIcons.contains("leinetalerrind")) -> true
+                        // Other filters work normally
+                        else -> mealIcons.contains(filter)
+                    }
+                }
             }
         }
         return filtered.sortedWith(compareBy(
@@ -336,18 +345,6 @@ private fun FilterRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (selectedFilters.isNotEmpty()) {
-            AssistChip(
-                onClick = onClear,
-                label = { Text("Clear") },
-                leadingIcon = { Icon(Icons.Rounded.Close, null, modifier = Modifier.size(16.dp)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    labelColor = MaterialTheme.colorScheme.onErrorContainer,
-                    leadingIconContentColor = MaterialTheme.colorScheme.onErrorContainer
-                )
-            )
-        }
         filters.forEach { (key, label) ->
             val selected = key in selectedFilters
             FilterChip(
@@ -366,6 +363,18 @@ private fun FilterRow(
                 )
             )
         }
+//        if (selectedFilters.isNotEmpty()) {
+//            AssistChip(
+//                onClick = onClear,
+//                label = { Text("Clear") },
+//                leadingIcon = { Icon(Icons.Rounded.Close, null, modifier = Modifier.size(16.dp)) },
+//                colors = AssistChipDefaults.assistChipColors(
+//                    containerColor = MaterialTheme.colorScheme.errorContainer,
+//                    labelColor = MaterialTheme.colorScheme.onErrorContainer,
+//                    leadingIconContentColor = MaterialTheme.colorScheme.onErrorContainer
+//                )
+//            )
+//        }
     }
 }
 
