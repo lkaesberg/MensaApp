@@ -194,6 +194,7 @@ fun CanteenMealsScreen(
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.systemBars,
         modifier = modifier
     ) { innerPadding ->
         Box(
