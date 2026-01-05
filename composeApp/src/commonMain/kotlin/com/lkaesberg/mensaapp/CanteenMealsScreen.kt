@@ -69,6 +69,7 @@ fun CanteenMealsScreen(
     var selectedDietaryFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showSearch by remember { mutableStateOf(false) }
     var showCanteenSheet by remember { mutableStateOf(false) }
+    var showInfoDialog by remember { mutableStateOf(false) }
     
     // Automatically switch to weekly (list) view when searching
     val isWeeklyView by remember(showSearch, searchQuery) {
@@ -190,7 +191,8 @@ fun CanteenMealsScreen(
                 isDarkMode = isDarkMode,
                 onToggleDarkMode = onToggleDarkMode,
                 onCanteenClick = { showCanteenSheet = true },
-                onSearchClick = { showSearch = !showSearch }
+                onSearchClick = { showSearch = !showSearch },
+                onInfoClick = { showInfoDialog = true }
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -272,6 +274,10 @@ fun CanteenMealsScreen(
                     onDismiss = { showCanteenSheet = false }
                 )
             }
+            
+            if (showInfoDialog) {
+                InfoDialog(onDismiss = { showInfoDialog = false })
+            }
         }
     }
 }
@@ -283,7 +289,8 @@ private fun MensaTopBar(
     isDarkMode: Boolean,
     onToggleDarkMode: () -> Unit,
     onCanteenClick: () -> Unit,
-    onSearchClick: () -> Unit
+    onSearchClick: () -> Unit,
+    onInfoClick: () -> Unit
 ) {
     CenterAlignedTopAppBar(
         title = {
@@ -311,6 +318,9 @@ private fun MensaTopBar(
         actions = {
             IconButton(onClick = onSearchClick) {
                 Icon(Icons.Rounded.Search, "Search")
+            }
+            IconButton(onClick = onInfoClick) {
+                Icon(Icons.Outlined.Info, "Info")
             }
         },
         navigationIcon = {
@@ -953,6 +963,91 @@ fun CanteenSelectionDialog(
             }
         }
     )
+}
+
+@Composable
+fun InfoDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.Restaurant,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(32.dp)
+            )
+        },
+        title = { 
+            Text(
+                "Mensa Göttingen",
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+            ) 
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Speiseplan der Mensen des Studierendenwerks Göttingen",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                
+                // Food icons legend
+                Text(
+                    text = "Legende",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LegendItem("vegan", "Vegan")
+                    LegendItem("vegetarisch", "Vegetarisch")
+                    LegendItem("fleisch", "Fleisch")
+                    LegendItem("fisch", "Fisch")
+                    LegendItem("bio", "Bio")
+                    LegendItem("nds", "Niedersachsen Menü")
+                    LegendItem("klimaessen", "Klimaessen")
+                    LegendItem("regional", "Regionale Zutaten")
+                }
+                
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                
+                Text(
+                    text = "Daten bereitgestellt vom Studierendenwerk Göttingen",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Text(
+                    text = "www.studierendenwerk-goettingen.de",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Schließen")
+            }
+        }
+    )
+}
+
+@Composable
+private fun LegendItem(iconKey: String, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        FoodIconBadge(iconKey = iconKey)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium
+        )
+    }
 }
 
 // Food icon configuration with abbreviation, color, emoji and label
