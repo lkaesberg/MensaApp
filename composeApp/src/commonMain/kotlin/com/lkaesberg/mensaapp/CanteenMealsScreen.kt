@@ -369,10 +369,10 @@ private fun FilterRow(
     onClear: () -> Unit
 ) {
     val filters = listOf(
-        "vegan" to "🌱 Vegan",
-        "vegetarisch" to "🥕 Veggie",
-        "fleisch" to "🥩 Meat",
-        "fisch" to "🐟 Fish"
+        "vegan" to "Vegan",
+        "vegetarisch" to "Veggie",
+        "fleisch" to "Meat",
+        "fisch" to "Fish"
     )
 
     Row(
@@ -389,6 +389,7 @@ private fun FilterRow(
                 selected = selected,
                 onClick = { onFilterChange(key) },
                 label = { Text(label) },
+                leadingIcon = { FoodIconBadge(iconKey = key) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                     selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -764,8 +765,7 @@ private fun BeautifulMealCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         meal?.icons?.take(4)?.forEach { iconKey ->
-                            val (emoji, _) = iconEmojiWithLabel[iconKey.lowercase()] ?: ("❓" to iconKey)
-                            Text(text = emoji, fontSize = 16.sp)
+                            FoodIconBadge(iconKey = iconKey.lowercase())
                         }
                     }
                 }
@@ -883,12 +883,22 @@ private fun BeautifulMealCard(
 
 @Composable
 private fun EmptyState(message: String = "No meals available") {
+    val isWeb = remember { getPlatform().isWeb }
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(text = "🍽️", fontSize = 64.sp)
+        if (isWeb) {
+            Icon(
+                imageVector = Icons.Rounded.Restaurant,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Text(text = "🍽️", fontSize = 64.sp)
+        }
         Spacer(Modifier.height(16.dp))
         Text(
             text = message,
@@ -904,6 +914,7 @@ fun CanteenSelectionDialog(
     onSelect: (Canteen) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val isWeb = remember { getPlatform().isWeb }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Select Canteen") },
@@ -917,7 +928,16 @@ fun CanteenSelectionDialog(
                             .padding(vertical = 12.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("📍", modifier = Modifier.padding(end = 12.dp))
+                        if (isWeb) {
+                            Icon(
+                                imageVector = Icons.Rounded.LocationOn,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 12.dp).size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Text("📍", modifier = Modifier.padding(end = 12.dp))
+                        }
                         Text(
                             text = canteen.name,
                             style = MaterialTheme.typography.bodyLarge
@@ -935,15 +955,51 @@ fun CanteenSelectionDialog(
     )
 }
 
-// Constants
-private val iconEmojiWithLabel = mapOf(
-    "vegetarisch" to ("🥕" to "Vegetarian"),
-    "vegan" to ("🌱" to "Vegan"),
-    "fleisch" to ("🥩" to "Meat"),
-    "strohschwein" to ("🐷" to "Pork"),
-    "leinetalerrind" to ("🐄" to "Beef"),
-    "fisch" to ("🐟" to "Fish"),
-    "bio" to ("🌿" to "Organic"),
-    "regional" to ("🏡" to "Regional"),
-    "klimaessen" to ("🌍" to "Climate-friendly"),
+// Food icon configuration with abbreviation, color, emoji and label
+private data class FoodIconConfig(
+    val abbreviation: String,
+    val color: Color,
+    val emoji: String,
+    val label: String
 )
+
+private val foodIconConfig = mapOf(
+    "vegetarisch" to FoodIconConfig("V", Color(0xFF4CAF50), "🥕", "Vegetarian"),
+    "vegan" to FoodIconConfig("VG", Color(0xFF2E7D32), "🌱", "Vegan"),
+    "fleisch" to FoodIconConfig("M", Color(0xFFD32F2F), "🥩", "Meat"),
+    "strohschwein" to FoodIconConfig("P", Color(0xFFE91E63), "🐷", "Pork"),
+    "leinetalerrind" to FoodIconConfig("B", Color(0xFF795548), "🐄", "Beef"),
+    "fisch" to FoodIconConfig("F", Color(0xFF2196F3), "🐟", "Fish"),
+    "bio" to FoodIconConfig("O", Color(0xFF8BC34A), "🌿", "Organic"),
+    "regional" to FoodIconConfig("R", Color(0xFFFF9800), "🏡", "Regional"),
+    "klimaessen" to FoodIconConfig("C", Color(0xFF00BCD4), "🌍", "Climate-friendly"),
+    "nds" to FoodIconConfig("NDS", Color(0xFFE53935), "🐴", "Niedersachsen"),
+)
+
+@Composable
+private fun FoodIconBadge(iconKey: String) {
+    val config = foodIconConfig[iconKey] ?: FoodIconConfig("?", Color.Gray, "❓", iconKey)
+    val isWeb = remember { getPlatform().isWeb }
+    
+    // Always use badge for NDS (Niedersachsen) or when on web
+    if (isWeb || iconKey == "nds") {
+        // Use colored badge on web (emoji rendering issues) and for NDS
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(config.color),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = config.abbreviation,
+                color = Color.White,
+                fontSize = if (config.abbreviation.length > 2) 8.sp else 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    } else {
+        // Use emoji on native platforms (Android, iOS)
+        Text(text = config.emoji, fontSize = 16.sp)
+    }
+}

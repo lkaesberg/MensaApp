@@ -1,12 +1,68 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>mensaapp</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <!-- Primary Meta Tags -->
+    <title>Mensa Göttingen - Speiseplan Studierendenwerk</title>
+    <meta name="title" content="Mensa Göttingen - Speiseplan Studierendenwerk">
+    <meta name="description" content="Aktueller Speiseplan der Mensen in Göttingen. Zentralmensa, Mensa am Turm, Nordmensa und mehr. Vegetarische, vegane und Klimaessen-Optionen auf einen Blick.">
+    <meta name="keywords" content="Mensa, Göttingen, Speiseplan, Studierendenwerk, Universität Göttingen, Zentralmensa, Nordmensa, Mensa am Turm, Vegan, Vegetarisch, Klimaessen, NDS Menü">
+    <meta name="author" content="Lars Kaesberg">
+    
+    <!-- Theme Color -->
+    <meta name="theme-color" content="#006876">
+    <meta name="msapplication-TileColor" content="#006876">
+    
+    <!-- iOS Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Mensa Göttingen">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="favicon.svg">
+    
+    <!-- Open Graph / Social Media -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://www.studierendenwerk-goettingen.de/campusgastronomie/mensen">
+    <meta property="og:title" content="Mensa Göttingen - Speiseplan Studierendenwerk">
+    <meta property="og:description" content="Aktueller Speiseplan der Mensen des Studierendenwerks Göttingen.">
+    <meta property="og:image" content="favicon.svg">
+    
+    <!-- Preconnect for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet">
+    
+    <!-- Styles -->
     <link type="text/css" rel="stylesheet" href="styles.css">
+    
+    <!-- App Script -->
     <script type="application/javascript" src="composeApp.js"></script>
 </head>
 <body>
+    <!-- Loading indicator while WASM loads -->
+    <div id="loading" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; background: #f5fafb; z-index: 9999;">
+        <div style="text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 16px;">🍽️</div>
+            <div style="color: #006876; font-family: system-ui, sans-serif; font-size: 18px;">Mensa Göttingen wird geladen...</div>
+            <div style="color: #6f797c; font-family: system-ui, sans-serif; font-size: 12px; margin-top: 8px;">Studierendenwerk Göttingen</div>
+        </div>
+    </div>
+    <script>
+        // Hide loading indicator when app is ready
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                var loading = document.getElementById('loading');
+                if (loading) {
+                    loading.style.transition = 'opacity 0.3s';
+                    loading.style.opacity = '0';
+                    setTimeout(function() { loading.remove(); }, 300);
+                }
+            }, 500);
+        });
+    </script>
 </body>
 </html>
