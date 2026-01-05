@@ -41,7 +41,11 @@ jobs:
       - name: "🛠️ Build WasmJS App"
         run: gradle :composeApp:wasmJsBrowserDistribution
 
-      # 5. Set up GitHub Pages
+      # 5. Copy docs folder content to build output
+      - name: "📁 Copy docs to build output"
+        run: cp -r ./docs/* ./composeApp/build/dist/wasmJs/productionExecutable/
+
+      # 6. Set up GitHub Pages
       - name: "📄 Configure GitHub Pages"
         uses: actions/configure-pages@v5
 
