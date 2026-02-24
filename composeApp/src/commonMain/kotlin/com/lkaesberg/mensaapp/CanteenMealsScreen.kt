@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -100,6 +104,7 @@ fun CanteenMealsScreen(
         refreshing = false
     }
 
+    val isWeb = remember { getPlatform().isWeb }
     val pullRefreshState = rememberPullRefreshState(refreshing = refreshing, onRefresh = {
         val canteen = selectedCanteen ?: return@rememberPullRefreshState
         coroutineScope.launch {
@@ -199,13 +204,22 @@ fun CanteenMealsScreen(
         contentWindowInsets = WindowInsets.systemBars,
         modifier = modifier
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .pullRefresh(pullRefreshState)
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize().padding(innerPadding)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            val gridColumns = if (maxWidth > 700.dp) 2 else 1
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (!isWeb) Modifier.pullRefresh(pullRefreshState) else Modifier)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = 1200.dp)
+                        .fillMaxHeight()
+                        .align(Alignment.TopCenter)
+                ) {
                 // Search Bar
                 AnimatedVisibility(visible = showSearch) {
                     SearchBar(
@@ -239,7 +253,8 @@ fun CanteenMealsScreen(
                             mealsByDate = mealsByDate,
                             favoriteIds = favoriteIds,
                             onToggleFavorite = { favoritesManager.toggleFavorite(it) },
-                            filterMeals = ::filterAndSortMeals
+                            filterMeals = ::filterAndSortMeals,
+                            gridColumns = gridColumns
                         )
                     } else {
                         DailyView(
@@ -249,19 +264,22 @@ fun CanteenMealsScreen(
                             favoriteIds = favoriteIds,
                             onToggleFavorite = { favoritesManager.toggleFavorite(it) },
                             filterMeals = ::filterAndSortMeals,
-                            separateMealsByTime = ::separateMealsByTime
+                            separateMealsByTime = ::separateMealsByTime,
+                            gridColumns = gridColumns
                         )
                     }
                 }
             }
 
-            PullRefreshIndicator(
-                refreshing = refreshing,
-                state = pullRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter),
-                backgroundColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.primary
-            )
+            if (!isWeb) {
+                PullRefreshIndicator(
+                    refreshing = refreshing,
+                    state = pullRefreshState,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    backgroundColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary
+                )
+            }
 
             if (showCanteenSheet) {
                 CanteenSelectionDialog(
@@ -279,10 +297,10 @@ fun CanteenMealsScreen(
                 InfoDialog(onDismiss = { showInfoDialog = false })
             }
         }
+        }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MensaTopBar(
     title: String,
@@ -292,50 +310,64 @@ private fun MensaTopBar(
     onSearchClick: () -> Unit,
     onInfoClick: () -> Unit
 ) {
-    CenterAlignedTopAppBar(
-        title = {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp,
+        tonalElevation = 2.dp
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable(onClick = onCanteenClick)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .widthIn(max = 1200.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.width(4.dp))
-                Icon(
-                    imageVector = Icons.Rounded.ArrowDropDown,
-                    contentDescription = "Select Canteen",
-                    modifier = Modifier.size(24.dp)
-                )
+                IconButton(onClick = onToggleDarkMode) {
+                    Icon(
+                        if (isDarkMode) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
+                        "Toggle Theme"
+                    )
+                }
+
+                Spacer(Modifier.weight(1f))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable(onClick = onCanteenClick)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Rounded.ArrowDropDown,
+                        contentDescription = "Select Canteen",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(Modifier.weight(1f))
+
+                IconButton(onClick = onSearchClick) {
+                    Icon(Icons.Rounded.Search, "Search")
+                }
+                IconButton(onClick = onInfoClick) {
+                    Icon(Icons.Outlined.Info, "Info")
+                }
             }
-        },
-        actions = {
-            IconButton(onClick = onSearchClick) {
-                Icon(Icons.Rounded.Search, "Search")
-            }
-            IconButton(onClick = onInfoClick) {
-                Icon(Icons.Outlined.Info, "Info")
-            }
-        },
-        navigationIcon = {
-            IconButton(onClick = onToggleDarkMode) {
-                Icon(
-                    if (isDarkMode) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
-                    "Toggle Theme"
-                )
-            }
-        },
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background,
-            scrolledContainerColor = MaterialTheme.colorScheme.surface
-        )
-    )
+        }
+    }
 }
 
 @Composable
@@ -436,13 +468,13 @@ private fun DailyView(
     favoriteIds: Set<String>,
     onToggleFavorite: (String) -> Unit,
     filterMeals: (List<MealDate>) -> List<MealDate>,
-    separateMealsByTime: (List<MealDate>) -> Pair<List<MealDate>, List<MealDate>>
+    separateMealsByTime: (List<MealDate>) -> Pair<List<MealDate>, List<MealDate>>,
+    gridColumns: Int = 1
 ) {
     val pagerState = rememberPagerState(initialPage = initialPageIndex) { dates.size }
     val coroutineScope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Date Strip
         ScrollableDateStrip(
             dates = dates,
             selectedIndex = pagerState.currentPage,
@@ -461,7 +493,6 @@ private fun DailyView(
             val meals = filterMeals(mealsByDate[date].orEmpty())
             val (lunchMeals, afternoonMeals) = separateMealsByTime(meals)
 
-            // Check if we should dim lunch items (past 14:30 on current day and afternoon meals exist)
             val systemTz = TimeZone.currentSystemDefault()
             val now = Clock.System.now().toLocalDateTime(systemTz)
             val today = now.date
@@ -469,17 +500,20 @@ private fun DailyView(
             val isPastLunchTime = now.hour > 14 || (now.hour == 14 && now.minute >= 30)
             val shouldDimLunch = isToday && isPastLunchTime && afternoonMeals.isNotEmpty()
 
-            LazyColumn(
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(gridColumns),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (meals.isEmpty()) {
-                    item { EmptyState("No meals for this day") }
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        EmptyState("No meals for this day")
+                    }
                 } else {
-                    // Lunch section
                     if (lunchMeals.isNotEmpty()) {
-                        items(lunchMeals, key = { "lunch_${it.id}" }) { meal ->
+                        gridItems(lunchMeals, key = { "lunch_${it.id}" }) { meal ->
                             BeautifulMealCard(
                                 mealDate = meal,
                                 isFavorite = favoriteIds.contains(meal.meals?.title),
@@ -489,16 +523,17 @@ private fun DailyView(
                         }
                     }
 
-                    // Separator
                     if (afternoonMeals.isNotEmpty() && lunchMeals.isNotEmpty()) {
-                        item(key = "separator_$date") {
+                        item(
+                            key = "separator_$date",
+                            span = { GridItemSpan(maxLineSpan) }
+                        ) {
                             TimeSeparator("Afternoon")
                         }
                     }
 
-                    // Afternoon section
                     if (afternoonMeals.isNotEmpty()) {
-                        items(afternoonMeals, key = { "afternoon_${it.id}" }) { meal ->
+                        gridItems(afternoonMeals, key = { "afternoon_${it.id}" }) { meal ->
                             BeautifulMealCard(
                                 mealDate = meal,
                                 isFavorite = favoriteIds.contains(meal.meals?.title),
@@ -508,7 +543,9 @@ private fun DailyView(
                         }
                     }
                 }
-                item { Spacer(Modifier.height(80.dp)) } // Bottom padding
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Spacer(Modifier.height(80.dp))
+                }
             }
         }
     }
@@ -622,30 +659,35 @@ private fun WeeklyView(
     mealsByDate: Map<LocalDate, List<MealDate>>,
     favoriteIds: Set<String>,
     onToggleFavorite: (String) -> Unit,
-    filterMeals: (List<MealDate>) -> List<MealDate>
+    filterMeals: (List<MealDate>) -> List<MealDate>,
+    gridColumns: Int = 1
 ) {
-    LazyColumn(
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(gridColumns),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         dates.forEach { date ->
             val meals = filterMeals(mealsByDate[date].orEmpty())
             if (meals.isNotEmpty()) {
-                item(key = "header_$date") {
+                item(
+                    key = "header_$date",
+                    span = { GridItemSpan(maxLineSpan) }
+                ) {
                     Text(
                         text = "${date.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }} ${date.dayOfMonth}.${date.monthNumber}",
                         style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(bottom = 8.dp)
+                        modifier = Modifier.padding(bottom = 8.dp, top = 8.dp)
                     )
                 }
-                items(meals, key = { it.id }) { meal ->
+                gridItems(meals, key = { it.id }) { meal ->
                     BeautifulMealCard(
                         mealDate = meal,
                         isFavorite = favoriteIds.contains(meal.meals?.title),
-                        onToggleFavorite = { meal.meals?.title?.let(onToggleFavorite) },
-                        modifier = Modifier.padding(bottom = 16.dp)
+                        onToggleFavorite = { meal.meals?.title?.let(onToggleFavorite) }
                     )
                 }
             }
