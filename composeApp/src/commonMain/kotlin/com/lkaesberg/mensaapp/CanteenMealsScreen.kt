@@ -49,6 +49,29 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.*
 import kotlinx.datetime.TimeZone
 
+internal fun isSauceChoiceMeal(mealDate: MealDate): Boolean {
+    val title = mealDate.meals?.title?.lowercase() ?: ""
+    val subtitle = mealDate.meals?.fullText?.lowercase() ?: ""
+    return title.contains("pastabuffet") || subtitle.contains("teppan yaki")
+}
+
+internal fun mealMatchesDietaryFilters(mealDate: MealDate, selectedDietaryFilters: Set<String>): Boolean {
+    if (selectedDietaryFilters.isEmpty()) return true
+    if (isSauceChoiceMeal(mealDate)) return true
+
+    val mealIcons = mealDate.meals?.icons?.map { it.lowercase() } ?: emptyList()
+    return selectedDietaryFilters.any { filter ->
+        when {
+            // Vegetarisch filter should also match vegan meals
+            filter == "vegetarisch" && (mealIcons.contains("vegetarisch") || mealIcons.contains("vegan")) -> true
+            // Fleisch filter should also match specific meat types
+            filter == "fleisch" && (mealIcons.contains("fleisch") || mealIcons.contains("strohschwein") || mealIcons.contains("leinetalerrind")) -> true
+            // Other filters work normally
+            else -> mealIcons.contains(filter)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun CanteenMealsScreen(
@@ -131,19 +154,7 @@ fun CanteenMealsScreen(
             }
         }
         if (selectedDietaryFilters.isNotEmpty()) {
-            filtered = filtered.filter { mealDate ->
-                val mealIcons = mealDate.meals?.icons?.map { it.lowercase() } ?: emptyList()
-                selectedDietaryFilters.any { filter ->
-                    when {
-                        // Vegetarisch filter should also match vegan meals
-                        filter == "vegetarisch" && (mealIcons.contains("vegetarisch") || mealIcons.contains("vegan")) -> true
-                        // Fleisch filter should also match specific meat types
-                        filter == "fleisch" && (mealIcons.contains("fleisch") || mealIcons.contains("strohschwein") || mealIcons.contains("leinetalerrind")) -> true
-                        // Other filters work normally
-                        else -> mealIcons.contains(filter)
-                    }
-                }
-            }
+            filtered = filtered.filter { mealDate -> mealMatchesDietaryFilters(mealDate, selectedDietaryFilters) }
         }
         return filtered
     }
