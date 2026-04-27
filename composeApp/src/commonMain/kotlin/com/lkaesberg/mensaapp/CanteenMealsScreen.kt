@@ -49,6 +49,13 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.*
 import kotlinx.datetime.TimeZone
 
+internal fun shouldHideAfternoonMealsForCanteenOnDate(canteen: Canteen?, meals: List<MealDate>): Boolean {
+    if (canteen?.name?.trim()?.lowercase() != "zentralmensa") return false
+    val servedOn = meals.firstOrNull()?.servedOn ?: return false
+    val dayOfWeek = runCatching { LocalDate.parse(servedOn).dayOfWeek }.getOrNull() ?: return false
+    return dayOfWeek == DayOfWeek.SATURDAY
+}
+
 internal fun isSauceChoiceMeal(mealDate: MealDate): Boolean {
     val title = mealDate.meals?.title?.lowercase() ?: ""
     val category = mealDate.category.lowercase()
@@ -161,6 +168,7 @@ fun CanteenMealsScreen(
     fun separateMealsByTime(meals: List<MealDate>): Pair<List<MealDate>, List<MealDate>> {
         val lunchMeals = mutableListOf<MealDate>()
         val afternoonMeals = mutableListOf<MealDate>()
+        val hideAfternoonMeals = shouldHideAfternoonMealsForCanteenOnDate(selectedCanteen, meals)
 
         meals.forEach { meal ->
             val note = meal.note?.lowercase() ?: ""
@@ -169,11 +177,15 @@ fun CanteenMealsScreen(
 
             if (isAfternoonOnly) {
                 // Only afternoon
-                afternoonMeals.add(meal)
+                if (!hideAfternoonMeals) {
+                    afternoonMeals.add(meal)
+                }
             } else if (isAllTime) {
                 // Available at all times - add to both
                 lunchMeals.add(meal)
-                afternoonMeals.add(meal)
+                if (!hideAfternoonMeals) {
+                    afternoonMeals.add(meal)
+                }
             } else {
                 // Lunch only
                 lunchMeals.add(meal)

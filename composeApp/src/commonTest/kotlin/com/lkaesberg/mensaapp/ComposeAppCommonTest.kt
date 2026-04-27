@@ -13,6 +13,36 @@ class ComposeAppCommonTest {
     }
 
     @Test
+    fun shouldHideAfternoonMealsForCanteenOnDate_hidesForZentralmensaOnSaturday() {
+        assertTrue(
+            shouldHideAfternoonMealsForCanteenOnDate(
+                canteen = Canteen(id = "1", name = "Zentralmensa"),
+                meals = listOf(sampleMealDate(servedOn = "2026-04-18"))
+            )
+        )
+    }
+
+    @Test
+    fun shouldHideAfternoonMealsForCanteenOnDate_doesNotHideForZentralmensaOnWeekday() {
+        assertFalse(
+            shouldHideAfternoonMealsForCanteenOnDate(
+                canteen = Canteen(id = "1", name = "Zentralmensa"),
+                meals = listOf(sampleMealDate(servedOn = "2026-04-20"))
+            )
+        )
+    }
+
+    @Test
+    fun shouldHideAfternoonMealsForCanteenOnDate_doesNotHideForOtherCanteens() {
+        assertFalse(
+            shouldHideAfternoonMealsForCanteenOnDate(
+                canteen = Canteen(id = "2", name = "Nordmensa"),
+                meals = listOf(sampleMealDate(servedOn = "2026-04-18"))
+            )
+        )
+    }
+
+    @Test
     fun pastabuffetMealMatchesVegetarianFilterEvenWithMeatIcon() {
         val mealDate = createMealDate(
             title = "Pastabuffet",
@@ -57,5 +87,13 @@ class ComposeAppCommonTest {
             fullText = fullText,
             icons = icons
         )
+    )
+
+    private fun sampleMealDate(servedOn: String): MealDate = MealDate(
+        id = "meal-date-1",
+        mealId = "meal-1",
+        canteenId = "canteen-1",
+        servedOn = servedOn,
+        category = "Hauptgericht"
     )
 }
