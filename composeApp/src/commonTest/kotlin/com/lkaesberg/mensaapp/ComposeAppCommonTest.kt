@@ -42,6 +42,53 @@ class ComposeAppCommonTest {
         )
     }
 
+    @Test
+    fun pastabuffetMealMatchesVegetarianFilterEvenWithMeatIcon() {
+        val mealDate = createMealDate(
+            title = "Pastabuffet",
+            fullText = "mit Tomatensauce oder Bolognese",
+            icons = listOf("fleisch")
+        )
+
+        assertTrue(mealMatchesDietaryFilters(mealDate, setOf("vegetarisch")))
+    }
+
+    @Test
+    fun teppanYakiSubtitleMatchesVegetarianFilterEvenWithMeatIcon() {
+        val mealDate = createMealDate(
+            title = "Nudelteller",
+            fullText = "Teppan Yaki mit zwei Saucen",
+            icons = listOf("fleisch")
+        )
+
+        assertTrue(mealMatchesDietaryFilters(mealDate, setOf("vegetarisch")))
+    }
+
+    @Test
+    fun regularMeatMealDoesNotMatchVegetarianFilter() {
+        val mealDate = createMealDate(
+            title = "Schnitzel",
+            fullText = "mit Pommes",
+            icons = listOf("fleisch")
+        )
+
+        assertFalse(mealMatchesDietaryFilters(mealDate, setOf("vegetarisch")))
+    }
+
+    private fun createMealDate(title: String, fullText: String, icons: List<String>): MealDate = MealDate(
+        id = "meal-date-id",
+        mealId = "meal-id",
+        canteenId = "canteen-id",
+        servedOn = "2026-04-20",
+        category = "Hauptgericht",
+        meals = Meal(
+            id = "meal-id",
+            title = title,
+            fullText = fullText,
+            icons = icons
+        )
+    )
+
     private fun sampleMealDate(servedOn: String): MealDate = MealDate(
         id = "meal-date-1",
         mealId = "meal-1",
