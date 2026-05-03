@@ -24,17 +24,21 @@ class MealsRepository(private val postgrest: Postgrest) {
         val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
         val yesterday = today.minus(1, DateTimeUnit.DAY)
 
-        // We embed the meal information via a join: select("*,meals(*)")
+        // We embed the meal information via a join: select("*,meals(*)").
+        // Deactivation is filtered client-side (after decode) so this query
+        // works against databases that haven't applied the deactivated_at
+        // migration yet — without it, the field is simply absent and every
+        // row is treated as active.
         val raw = postgrest["meal_dates"].select(columns = Columns.raw("*,meals(*)")) {
             filter {
                 eq("canteen_id", canteenId)
                 gte("served_on", yesterday.toString())
-                exact("deactivated_at", null)
             }
             order("served_on", Order.ASCENDING)
         }.decodeList<MealDate>()
 
-        raw.groupBy { LocalDate.parse(it.servedOn) }
+        raw.filter { it.deactivatedAt == null }
+            .groupBy { LocalDate.parse(it.servedOn) }
             .mapValues { entry ->
                 entry.value.sortedBy { it.category.lowercase() }
             }

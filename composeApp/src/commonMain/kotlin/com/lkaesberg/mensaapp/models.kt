@@ -30,7 +30,11 @@ data class MealDate(
     val category: String,
     val note: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
+    // Set when the upstream stops listing this meal. Null = active. Field is
+    // absent on databases without the deactivation migration; that's fine —
+    // it stays null and the meal is treated as active.
+    @SerialName("deactivated_at") val deactivatedAt: String? = null,
 
     // Embedded join, will be null if not requested
     val meals: Meal? = null,
-) 
+)
