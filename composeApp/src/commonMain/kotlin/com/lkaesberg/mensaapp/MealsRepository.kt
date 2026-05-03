@@ -29,6 +29,7 @@ class MealsRepository(private val postgrest: Postgrest) {
             filter {
                 eq("canteen_id", canteenId)
                 gte("served_on", yesterday.toString())
+                isExact("deactivated_at", null)
             }
             order("served_on", Order.ASCENDING)
         }.decodeList<MealDate>()
