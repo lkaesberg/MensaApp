@@ -19,6 +19,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Mensa Göttingen">
+    <!-- Native iOS Smart App Banner (rendered by Safari) -->
+    <meta name="apple-itunes-app" content="app-id=6774772120">
     
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -43,6 +45,20 @@
     <script type="application/javascript" src="composeApp.js"></script>
 </head>
 <body>
+    <!-- App download banner (shown only in iOS / Android mobile browsers) -->
+    <div id="app-banner" class="app-banner" role="complementary" aria-label="Mensa App herunterladen">
+        <button id="app-banner-close" class="app-banner__close" type="button" aria-label="Banner schließen">&times;</button>
+        <img class="app-banner__icon" src="app-icon.png" width="48" height="48" alt="Mensa App Göttingen">
+        <div class="app-banner__text">
+            <span class="app-banner__title">Mensa App Göttingen</span>
+            <span id="app-banner-subtitle" class="app-banner__subtitle">Kostenlos im Store laden</span>
+        </div>
+        <a id="app-banner-cta" class="app-banner__cta" href="#" rel="noopener" target="_blank">Installieren</a>
+    </div>
+
+    <!-- Compose / WASM app renders into this container (below the banner) -->
+    <div id="app-container"></div>
+
     <!-- Loading indicator while WASM loads -->
     <div id="loading" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; background: #f5fafb; z-index: 9999;">
         <div style="text-align: center;">
@@ -63,6 +79,72 @@
                 }
             }, 500);
         });
+    </script>
+
+    <!-- App download banner: detect platform and link to the matching store -->
+    <script>
+        (function () {
+            var STORE_URLS = {
+                ios: 'https://apps.apple.com/de/app/mensa-app-göttingen/id6774772120',
+                android: 'https://play.google.com/store/apps/details?id=com.lkaesberg.mensaapp'
+            };
+            var SUBTITLES = {
+                ios: 'Kostenlos im App Store laden',
+                android: 'Kostenlos bei Google Play laden'
+            };
+            var DISMISS_KEY = 'mensa-app-banner-dismissed';
+
+            function detectOs() {
+                var ua = navigator.userAgent || '';
+                if (/Android/i.test(ua)) return 'android';
+                if (/iPad|iPhone|iPod/i.test(ua)) return 'ios';
+                // iPadOS 13+ reports a desktop Safari UA but is still iOS
+                if (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1) return 'ios';
+                return null;
+            }
+
+            function isIosSafari() {
+                // Apple's native Smart App Banner (apple-itunes-app meta tag) only renders in
+                // mobile Safari — not Chrome (CriOS), Firefox (FxiOS), Edge (EdgiOS), Opera (OPiOS).
+                var ua = navigator.userAgent || '';
+                return /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+            }
+
+            function isStandalone() {
+                return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                    navigator.standalone === true;
+            }
+
+            function isDismissed() {
+                try { return localStorage.getItem(DISMISS_KEY) === '1'; } catch (e) { return false; }
+            }
+
+            function init() {
+                var banner = document.getElementById('app-banner');
+                if (!banner) return;
+
+                var os = detectOs();
+                // Only on mobile browsers, when not already installed and not dismissed before.
+                if (!os || isStandalone() || isDismissed()) return;
+                // On iOS Safari, Apple's native banner handles it — don't show a second one.
+                if (os === 'ios' && isIosSafari()) return;
+
+                document.getElementById('app-banner-cta').href = STORE_URLS[os];
+                document.getElementById('app-banner-subtitle').textContent = SUBTITLES[os];
+                banner.classList.add('is-visible');
+
+                document.getElementById('app-banner-close').addEventListener('click', function () {
+                    banner.classList.remove('is-visible');
+                    try { localStorage.setItem(DISMISS_KEY, '1'); } catch (e) {}
+                });
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+        })();
     </script>
 </body>
 </html>
