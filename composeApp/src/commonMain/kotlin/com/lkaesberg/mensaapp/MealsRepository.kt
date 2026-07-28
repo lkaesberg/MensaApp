@@ -4,10 +4,13 @@ import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlin.time.Clock
+import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.minus
+import kotlinx.datetime.plus
 import kotlinx.datetime.todayIn
 
 class MealsRepository(private val postgrest: Postgrest) {
@@ -124,6 +127,28 @@ class MealsRepository(private val postgrest: Postgrest) {
         postgrest["canteen_occupancy_latest"].select().decodeList<CanteenOccupancy>()
     } catch (e: Throwable) {
         println("Error fetching occupancy: ${e.message}")
+        emptyList()
+    }
+
+    /**
+     * Time-series of occupancy snapshots for a single canteen on a single day.
+     * Pulls every row the 30-minute cron has logged for that day, ordered
+     * chronologically. Empty list before the first sync or on closed days.
+     */
+    suspend fun getOccupancyForDay(canteenId: String, day: LocalDate): List<CanteenOccupancy> = try {
+        val tz = TimeZone.currentSystemDefault()
+        val start = day.atStartOfDayIn(tz).toString()
+        val end = day.plus(DatePeriod(days = 1)).atStartOfDayIn(tz).toString()
+        postgrest["canteen_occupancy"].select {
+            filter {
+                eq("canteen_id", canteenId)
+                gte("observed_at", start)
+                lt("observed_at", end)
+            }
+            order("observed_at", Order.ASCENDING)
+        }.decodeList<CanteenOccupancy>()
+    } catch (e: Throwable) {
+        println("Error fetching occupancy history for canteen $canteenId: ${e.message}")
         emptyList()
     }
 }

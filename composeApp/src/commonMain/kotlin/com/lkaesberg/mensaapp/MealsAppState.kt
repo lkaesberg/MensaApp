@@ -78,12 +78,29 @@ class MealsAppState(
     private val _occupancy = MutableStateFlow<Map<String, CanteenOccupancy>>(emptyMap())
     val occupancy: StateFlow<Map<String, CanteenOccupancy>> = _occupancy.asStateFlow()
 
+    /**
+     * Today's occupancy time-series for the currently-selected canteen.
+     * One row per 30-minute sync. Loaded lazily by [loadOccupancyTodayForSelected]
+     * — the mobile app sticks with the single latest snapshot, only the web
+     * crowd panel renders the full curve.
+     */
+    private val _occupancyToday = MutableStateFlow<List<CanteenOccupancy>>(emptyList())
+    val occupancyToday: StateFlow<List<CanteenOccupancy>> = _occupancyToday.asStateFlow()
+
     fun refreshHoursAndOccupancy(scope: CoroutineScope) {
         scope.launch {
             _canteenHours.value = repository.getCanteenHours().groupBy { it.canteenId }
         }
         scope.launch {
             _occupancy.value = repository.getOccupancyLatest().associateBy { it.canteenId }
+        }
+    }
+
+    fun loadOccupancyTodayForSelected(scope: CoroutineScope) {
+        val canteen = _selectedCanteen.value ?: return
+        val today = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
+        scope.launch {
+            _occupancyToday.value = repository.getOccupancyForDay(canteen.id, today)
         }
     }
 

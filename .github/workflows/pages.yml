@@ -31,15 +31,13 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      # 3. Set up Gradle
+      # 3. Set up Gradle (uses the version from gradle/wrapper — AGP 8.13 needs Gradle 8.13+)
       - name: "⚙️ Setup Gradle"
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.9
+        uses: gradle/actions/setup-gradle@v4
 
       # 4. Build the WasmJS App
       - name: "🛠️ Build WasmJS App"
-        run: gradle :composeApp:wasmJsBrowserDistribution
+        run: ./gradlew :composeApp:wasmJsBrowserDistribution
 
       # 5. Copy docs folder content to build output
       - name: "📁 Copy docs to build output"

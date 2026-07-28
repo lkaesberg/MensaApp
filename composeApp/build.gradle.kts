@@ -100,6 +100,10 @@ kotlin {
     }
 }
 
+// CI (see .github/workflows/release-play-store.yml) overrides these; local builds use the defaults.
+val appVersionCode = (findProperty("mensa.versionCode") as String?)?.toInt() ?: 15
+val appVersionName = (findProperty("mensa.versionName") as String?) ?: "2.7"
+
 android {
     namespace = "com.lkaesberg.mensaapp"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -108,17 +112,31 @@ android {
         applicationId = "com.lkaesberg.mensaapp"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 15
-        versionName = "2.7"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    signingConfigs {
+        // Only wired up when the keystore is present (CI, or a local release build).
+        // Debug builds and CI jobs that don't need signing are unaffected.
+        val keystoreFile = System.getenv("MENSA_KEYSTORE_FILE")
+        if (keystoreFile != null) {
+            create("release") {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("MENSA_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MENSA_KEY_ALIAS")
+                keyPassword = System.getenv("MENSA_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {
