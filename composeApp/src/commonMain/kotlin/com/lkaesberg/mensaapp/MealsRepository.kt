@@ -37,20 +37,36 @@ class MealsRepository(private val postgrest: Postgrest) {
             order("served_on", Order.ASCENDING)
         }.decodeList<MealDate>()
 
-        // Keep deactivated rows from *today*: the upstream HTML drops today's
-        // plan once the canteen closes, which makes the scraper soft-delete
-        // those rows. They should still appear in the feed (greyed out via
-        // MealCard's deactivatedAt handling) instead of vanishing. Past and
-        // future deactivations stay filtered.
-        //
         // Drop empty-title rows entirely — they're "Last Minute" placeholders
         // the API returns for unfilled category slots. The new scraper skips
         // them at parse time, but legacy rows linger in DB and surface as
         // weird greyed-out blank cards otherwise.
-        raw.filter { md ->
-            val isActiveOrToday = md.deactivatedAt == null || LocalDate.parse(md.servedOn) == today
+        val titled = raw.filter { md ->
             val title = md.meals?.cleanTitle?.ifBlank { null } ?: md.meals?.title
-            isActiveOrToday && !title.isNullOrBlank()
+            !title.isNullOrBlank()
+        }
+
+        // Today's rows can be deactivated for two very different reasons, and
+        // `deactivated_at` alone doesn't distinguish them:
+        //
+        //   • the canteen closed and upstream dropped the whole day — the plan
+        //     should stay visible, greyed out via MealCard's deactivatedAt
+        //     handling, instead of the feed going blank;
+        //   • a single counter was renamed or retired while the rest of the day
+        //     is still served (e.g. "Turm Vegan" → "Turm Vegan Kombi") — the
+        //     stale row has to go, the API is the ground truth.
+        //
+        // A still-active row for today means upstream is publishing the day, so
+        // any deactivated sibling is a real removal. Only when the entire day is
+        // deactivated do we keep the rows as a closed-canteen memento. Past and
+        // future deactivations stay filtered unconditionally.
+        val todayStillServed = titled.any { md ->
+            md.deactivatedAt == null && LocalDate.parse(md.servedOn) == today
+        }
+
+        titled.filter { md ->
+            md.deactivatedAt == null ||
+                (!todayStillServed && LocalDate.parse(md.servedOn) == today)
         }
             .groupBy { LocalDate.parse(it.servedOn) }
             .mapValues { entry ->

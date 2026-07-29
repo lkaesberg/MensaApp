@@ -3,6 +3,7 @@
 
 // deno-lint-ignore-file no-explicit-any
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.39.6';
+import { resolveKnownCanteen } from './canteens.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -77,15 +78,63 @@ export async function mapWithConcurrency<T, U>(
 // from /api/oeffnungszeiten) we upsert by name.
 const canteenIdCache = new Map<string, string>();
 
-export async function getOrCreateCanteenId(name: string): Promise<string> {
-  const cached = canteenIdCache.get(name);
+// `canteens.name` is UNIQUE but case-sensitive, so any casing drift upstream
+// forks a brand-new canteen — which then has no slug, no external_id, no
+// opening hours and no occupancy, and shows up as a duplicate in the picker.
+// This is not hypothetical: on 2026-07-24 the menu API started emitting a
+// second <mensa name="CGIN"> block (Friday burger counters) alongside the
+// regular "CGiN" one, and it forked.
+//
+// Two layers of defence, because the menu API gives us no canteen id — the
+// free-text name is the only join key there is:
+//
+//   1. resolveKnownCanteen() folds case/whitespace and consults an explicit
+//      alias map, so recognised canteens always land on one row.
+//   2. `allowCreate` is opt-in. The menu sync passes false: an unrecognised
+//      <mensa name> is reported and skipped, never turned into a canteen.
+//      The hours sync passes true — that endpoint is where the cafés
+//      legitimately come from, and they're not in CANTEEN_SLUGS.
+export interface ResolveCanteenOptions {
+  /** Create a row when the name matches nothing on record. Default true. */
+  allowCreate?: boolean;
+}
+
+export async function getOrCreateCanteenId(
+  rawName: string,
+  opts: ResolveCanteenOptions = {},
+): Promise<string | null> {
+  const { allowCreate = true } = opts;
+  const cacheKey = `${allowCreate}|${rawName}`;
+  const cached = canteenIdCache.get(cacheKey);
   if (cached) return cached;
+
+  const known = resolveKnownCanteen(rawName);
+  const name = known ?? rawName.trim().replace(/\s+/g, ' ');
+  if (!known && !allowCreate) return null;
+
+  // Case-insensitive lookup before create, so casing drift on canteens that
+  // aren't in CANTEEN_SLUGS (the cafés) doesn't fork either. ilike treats
+  // % and _ as wildcards — canteen names are plain text, but escape anyway.
+  const pattern = name.replace(/([\\%_])/g, '\\$1');
+  const { data: existing, error: findErr } = await supabase
+    .from('canteens')
+    .select('id')
+    .ilike('name', pattern)
+    .limit(1);
+  if (findErr) throw findErr;
+  if (existing && existing.length > 0) {
+    canteenIdCache.set(cacheKey, existing[0].id);
+    return existing[0].id;
+  }
+
+  if (!allowCreate) return null;
+
   const { data, error } = await supabase
     .from('canteens')
     .upsert({ name }, { onConflict: 'name' })
     .select('id')
     .single();
   if (error) throw error;
-  canteenIdCache.set(name, data!.id);
+  canteenIdCache.set(cacheKey, data!.id);
   return data!.id;
 }

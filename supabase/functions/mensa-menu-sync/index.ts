@@ -29,7 +29,7 @@ import {
   mapWithConcurrency,
   supabase,
 } from '../_shared/supabase.ts';
-import { CANTEEN_SLUGS, CANTEEN_EXTERNAL_IDS } from '../_shared/canteens.ts';
+import { CANTEEN_SLUGS, CANTEEN_EXTERNAL_IDS, resolveKnownCanteen } from '../_shared/canteens.ts';
 import {
   CODE_RE,
   parseEuroCents,
@@ -223,15 +223,26 @@ function parseDayXml(xml: string): Speise[] {
 interface UpsertResult {
   // keys "<canteen_id>|<category>" of meal_dates we successfully wrote, per day
   seenByDay: Map<string, Set<string>>;
+  // canteen_ids we actually resolved this run — deactivation is scoped to
+  // these so a canteen we skipped doesn't get its whole plan soft-deleted.
+  resolvedCanteenIds: Set<string>;
+  // <mensa name> values we didn't recognise. Surfaced in the HTTP response
+  // and the logs so a naming change upstream is visible instead of silently
+  // forking a new canteen.
+  unknownCanteens: string[];
   ok: number;
   fail: number;
 }
 
 async function upsertDay(speisen: Speise[]): Promise<UpsertResult> {
   const seenByDay = new Map<string, Set<string>>();
+  const resolvedCanteenIds = new Set<string>();
+  const unknownCanteens: string[] = [];
   let ok = 0;
   let fail = 0;
-  if (speisen.length === 0) return { seenByDay, ok, fail };
+  if (speisen.length === 0) {
+    return { seenByDay, resolvedCanteenIds, unknownCanteens, ok, fail };
+  }
 
   try {
     // 1. Resolve canteen IDs once per distinct name. The existing cache
@@ -239,18 +250,31 @@ async function upsertDay(speisen: Speise[]): Promise<UpsertResult> {
     //    upserts the row. We also backfill slug/external_id for the four
     //    mensas in case the migration didn't catch them (auto-created
     //    rows can be name-only).
+    //    Strict resolution: this endpoint serves a known, fixed set of
+    //    mensas, so an unrecognised <mensa name> is a naming change upstream,
+    //    not a new venue. Report it and skip — auto-creating is what forked
+    //    "CGIN" off "CGiN" on 2026-07-24. Fixing a future one is a line in
+    //    CANTEEN_NAME_ALIASES.
     const canteenNames = [...new Set(speisen.map((s) => s.mensa))];
     const canteenIdByName = new Map<string, string>();
     for (const name of canteenNames) {
-      canteenIdByName.set(name, await getOrCreateCanteenId(name));
-      if (CANTEEN_SLUGS[name]) {
+      const id = await getOrCreateCanteenId(name, { allowCreate: false });
+      if (!id) {
+        unknownCanteens.push(name);
+        log(`⚠ unknown canteen name "${name}" — skipping its dishes`);
+        continue;
+      }
+      canteenIdByName.set(name, id);
+      resolvedCanteenIds.add(id);
+      const canonical = resolveKnownCanteen(name);
+      if (canonical && CANTEEN_SLUGS[canonical]) {
         await supabase
           .from('canteens')
           .update({
-            slug: CANTEEN_SLUGS[name],
-            external_id: CANTEEN_EXTERNAL_IDS[name] ?? null,
+            slug: CANTEEN_SLUGS[canonical],
+            external_id: CANTEEN_EXTERNAL_IDS[canonical] ?? null,
           })
-          .eq('id', canteenIdByName.get(name)!)
+          .eq('id', id)
           .is('slug', null);
       }
     }
@@ -339,18 +363,23 @@ async function upsertDay(speisen: Speise[]): Promise<UpsertResult> {
     fail += speisen.length - ok;
   }
 
-  return { seenByDay, ok, fail };
+  return { seenByDay, resolvedCanteenIds, unknownCanteens, ok, fail };
 }
 
 async function deactivateStale(
   successfulDays: string[],
   seenByDay: Map<string, Set<string>>,
+  resolvedCanteenIds: Set<string>,
 ): Promise<number> {
-  if (successfulDays.length === 0) return 0;
+  if (successfulDays.length === 0 || resolvedCanteenIds.size === 0) return 0;
   const { data, error } = await supabase
     .from('meal_dates')
     .select('id, canteen_id, served_on, category, deactivated_at')
-    .in('served_on', successfulDays);
+    .in('served_on', successfulDays)
+    // Scope to canteens this run actually resolved. Without it, a canteen we
+    // skipped (unknown name) or that upstream omitted would have its entire
+    // plan soft-deleted just for being absent from `seenByDay`.
+    .in('canteen_id', [...resolvedCanteenIds]);
   if (error) {
     log('deactivate: select error', error);
     return 0;
@@ -443,8 +472,15 @@ Deno.serve(async (req) => {
   const upsert = await upsertDay(allSpeisen);
   totalOk = upsert.ok;
   totalFail = upsert.fail;
-  const deactivated = await deactivateStale(successfulDays, upsert.seenByDay);
+  const deactivated = await deactivateStale(
+    successfulDays,
+    upsert.seenByDay,
+    upsert.resolvedCanteenIds,
+  );
 
+  if (upsert.unknownCanteens.length > 0) {
+    log(`⚠ unknown canteen names this run: ${upsert.unknownCanteens.join(', ')}`);
+  }
   log(`done. ok=${totalOk} fail=${totalFail} deactivated=${deactivated} days=${successfulDays.length}/${dates.length}`);
   return new Response(
     JSON.stringify({
@@ -454,6 +490,7 @@ Deno.serve(async (req) => {
       upsert_ok: totalOk,
       upsert_fail: totalFail,
       deactivated,
+      unknown_canteens: upsert.unknownCanteens,
     }),
     { headers: { 'Content-Type': 'application/json' } },
   );

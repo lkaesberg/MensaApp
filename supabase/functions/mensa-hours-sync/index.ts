@@ -17,7 +17,7 @@ import {
   log,
   supabase,
 } from '../_shared/supabase.ts';
-import { CANTEEN_SLUGS, CANTEEN_EXTERNAL_IDS } from '../_shared/canteens.ts';
+import { CANTEEN_SLUGS, CANTEEN_EXTERNAL_IDS, resolveKnownCanteen } from '../_shared/canteens.ts';
 
 const URL = 'https://app.studentenwerk-goettingen.de/api/oeffnungszeiten';
 
@@ -70,16 +70,21 @@ Deno.serve(async () => {
   const rows: DayRow[] = [];
   for (const e of entries) {
     if (!e.name) continue;
+    // This endpoint is the source of the cafés, which aren't in
+    // CANTEEN_SLUGS — so auto-create stays on here. Name folding in
+    // getOrCreateCanteenId still keeps casing drift from forking a row.
     const canteenId = await getOrCreateCanteenId(e.name);
+    if (!canteenId) continue;
     // For the four "real" mensas, also backfill slug + external_id in
     // case the migration didn't catch them (e.g. if the canteen was
     // newly auto-created from a previous run by name only).
-    if (CANTEEN_SLUGS[e.name]) {
+    const canonical = resolveKnownCanteen(e.name);
+    if (canonical && CANTEEN_SLUGS[canonical]) {
       await supabase
         .from('canteens')
         .update({
-          slug: CANTEEN_SLUGS[e.name],
-          external_id: CANTEEN_EXTERNAL_IDS[e.name] ?? null,
+          slug: CANTEEN_SLUGS[canonical],
+          external_id: CANTEEN_EXTERNAL_IDS[canonical] ?? null,
         })
         .eq('id', canteenId);
     }
