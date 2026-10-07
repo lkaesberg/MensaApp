@@ -19,25 +19,6 @@ export function stripAllergenParens(s: string): string {
   return s.replace(/\s*\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
 }
 
-// Split a description into discrete sides, dropping leftover allergen
-// fragments (`a`, `a.1`, `(Fleisch`, `3)` etc.) that would otherwise
-// surface as garbage chips in the UI. Mirror of the Kotlin sanitiser.
-export function splitAndSanitiseSides(desc: string | null | undefined): string[] {
-  if (!desc) return [];
-  // Strip all parenthesised groups first ("Curryfruchtsauce (2,g,j)"
-  // → "Curryfruchtsauce") so the comma split doesn't shred them.
-  const stripped = desc.replace(/\s*\([^)]*\)/g, '');
-  return stripped
-    .split(',')
-    .map((p) => p.trim())
-    .filter((p) => {
-      if (!p) return false;
-      if (CODE_RE.test(p)) return false;
-      if (p.startsWith('(') || p.endsWith(')')) return false;
-      return true;
-    });
-}
-
 // "3,95" → 395 cents; "3,95 / 4,95" → 395 (first); empty/dashes → null
 export function parseEuroCents(s: string | null | undefined): number | null {
   if (!s) return null;

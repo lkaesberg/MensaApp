@@ -1,5 +1,6 @@
 package com.lkaesberg.mensaapp
 
+import com.lkaesberg.mensaapp.data.MenuStructure
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
@@ -16,13 +17,25 @@ import kotlinx.datetime.todayIn
 class MealsRepository(private val postgrest: Postgrest) {
 
     suspend fun getCanteens(): List<Canteen> = try {
-        postgrest["canteens"].select().decodeList<Canteen>()
+        fetchCanteens()
     } catch (e: Throwable) {
         println("Error fetching canteens: ${e.message}")
         emptyList()
     }
 
+    /** Like [getCanteens] but throws, so the feed can tell "offline" from "nothing planned". */
+    suspend fun fetchCanteens(): List<Canteen> =
+        postgrest["canteens"].select().decodeList<Canteen>()
+
     suspend fun getMealsForCanteen(canteenId: String): Map<LocalDate, List<MealDate>> = try {
+        fetchMealsForCanteen(canteenId)
+    } catch (e: Throwable) {
+        println("Error fetching meals for canteen $canteenId: ${e.message}")
+        emptyMap()
+    }
+
+    /** Like [getMealsForCanteen] but throws on network / server errors. */
+    suspend fun fetchMealsForCanteen(canteenId: String): Map<LocalDate, List<MealDate>> {
         val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
         val yesterday = today.minus(1, DateTimeUnit.DAY)
 
@@ -43,7 +56,8 @@ class MealsRepository(private val postgrest: Postgrest) {
         // weird greyed-out blank cards otherwise.
         val titled = raw.filter { md ->
             val title = md.meals?.cleanTitle?.ifBlank { null } ?: md.meals?.title
-            !title.isNullOrBlank()
+            // "Heute leider geschlossen" was stored as a dish before 2026-10-08.
+            !title.isNullOrBlank() && !MenuStructure.isNonDish(title)
         }
 
         // Today's rows can be deactivated for two very different reasons, and
@@ -64,17 +78,14 @@ class MealsRepository(private val postgrest: Postgrest) {
             md.deactivatedAt == null && LocalDate.parse(md.servedOn) == today
         }
 
-        titled.filter { md ->
+        val visible = titled.filter { md ->
             md.deactivatedAt == null ||
                 (!todayStillServed && LocalDate.parse(md.servedOn) == today)
         }
+        val order = MenuStructure.feedOrder(MenuStructure.staples(visible))
+        return visible
             .groupBy { LocalDate.parse(it.servedOn) }
-            .mapValues { entry ->
-                entry.value.sortedBy { it.category.lowercase() }
-            }
-    } catch (e: Throwable) {
-        println("Error fetching meals for canteen $canteenId: ${e.message}")
-        emptyMap()
+            .mapValues { entry -> entry.value.sortedWith(order) }
     }
 
     /**
@@ -103,7 +114,7 @@ class MealsRepository(private val postgrest: Postgrest) {
             order("served_on", Order.DESCENDING)
         }.decodeList<MealDate>()
 
-        raw.filter { it.deactivatedAt == null }
+        raw.filter { it.deactivatedAt == null && !MenuStructure.isNonDish(it.meals?.title.orEmpty()) }
     } catch (e: Throwable) {
         println("Error fetching meal history for canteen $canteenId: ${e.message}")
         emptyList()

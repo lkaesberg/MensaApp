@@ -45,6 +45,7 @@ import com.lkaesberg.mensaapp.MealsAppState
 import com.lkaesberg.mensaapp.data.CanteenInfo
 import com.lkaesberg.mensaapp.data.CanteenStaticData
 import com.lkaesberg.mensaapp.data.MealEnrichment
+import com.lkaesberg.mensaapp.data.MenuStructure
 import com.lkaesberg.mensaapp.data.ResolvedPrice
 import com.lkaesberg.mensaapp.data.UserRole
 import com.lkaesberg.mensaapp.ui.MensaTheme
@@ -316,7 +317,7 @@ fun CanteenDetailScreen(
             ) {
                 Plate(meal = md.meals, size = 48.dp, radius = 10.dp)
                 Column(modifier = Modifier.weight(1f)) {
-                    Eyebrow(text = md.category)
+                    Eyebrow(text = MenuStructure.displayCategory(md.category))
                     Text(
                         text = enr.cleanTitle.ifBlank { md.meals?.title.orEmpty() },
                         color = palette.ink,

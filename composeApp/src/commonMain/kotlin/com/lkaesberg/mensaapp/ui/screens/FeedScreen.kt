@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
@@ -56,11 +57,15 @@ import com.lkaesberg.mensaapp.shouldHideAfternoonMealsForCanteenOnDate
 import com.lkaesberg.mensaapp.data.CanteenStaticData
 import com.lkaesberg.mensaapp.data.PriceResolver
 import com.lkaesberg.mensaapp.data.MealEnrichment
+import com.lkaesberg.mensaapp.data.MenuSection
+import com.lkaesberg.mensaapp.data.MenuStructure
 import com.lkaesberg.mensaapp.ui.MensaTheme
+import com.lkaesberg.mensaapp.ui.components.CounterCard
 import com.lkaesberg.mensaapp.ui.components.DateChip
 import com.lkaesberg.mensaapp.ui.components.EmptyState
 import com.lkaesberg.mensaapp.ui.components.FilterChipsRow
 import com.lkaesberg.mensaapp.ui.components.MealCard
+import com.lkaesberg.mensaapp.ui.components.MenuSectionHeader
 import com.lkaesberg.mensaapp.ui.components.OccupancyChip
 import com.lkaesberg.mensaapp.ui.components.TimeSeparator
 import kotlin.time.Clock
@@ -91,7 +96,11 @@ fun FeedScreen(
     val mealsByDate by state.mealsByDate.collectAsState()
     val favoriteIds by state.favoritesManager.favorites.collectAsState()
     val userRole by state.userRole.collectAsState()
+    val loadFailed by state.loadFailed.collectAsState()
+    val refreshing by state.refreshing.collectAsState()
     val selectedFilters = remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Same set the repository sorted by; recomputed here to draw the section headers.
+    val staples = remember(mealsByDate) { MenuStructure.staples(mealsByDate.values.flatten()) }
 
     LaunchedEffect(Unit) { state.loadCanteens(scope) }
 
@@ -158,7 +167,8 @@ fun FeedScreen(
         StatusRow(
             state = state,
             canteen = selectedCanteen,
-            mealCount = mealsByDate[selectedDate]?.size ?: 0,
+            // Dishes only — side and dessert counters aren't separate meals.
+            mealCount = mealsByDate[selectedDate]?.count { !MenuStructure.isCounter(it) } ?: 0,
         )
         Spacer(Modifier.height(8.dp))
         DateStrip(
@@ -215,8 +225,14 @@ fun FeedScreen(
                 // before lunch. The `keepTodayActive` flag below handles the
                 // visual side: those rows render at full opacity until the
                 // canteen actually closes.
+                // Diet filters pick the main dish. Side and dessert counters mix
+                // vegan and non-vegan options under one headline flag, so they
+                // stay listed — as long as at least one main still matches.
+                val filters = selectedFilters.value
                 val all = mealsByDate[pageDate].orEmpty()
-                    .filter { mealMatchesDietaryFilters(it, selectedFilters.value) }
+                    .filter { MenuStructure.isCounter(it) || mealMatchesDietaryFilters(it, filters) }
+                    .takeIf { kept -> filters.isEmpty() || kept.any { !MenuStructure.isCounter(it) } }
+                    .orEmpty()
                 val hideAfternoon = shouldHideAfternoonMealsForCanteenOnDate(selectedCanteen, all)
                 separateMealsByPeriod(all, hideAfternoon)
             }
@@ -235,7 +251,19 @@ fun FeedScreen(
             // the dimmed-history behaviour.
             val keepTodayActive = pageDate == today && !isCanteenPastClosing
 
-            if (activeMeals.isEmpty()) {
+            if (activeMeals.isEmpty() && loadFailed) {
+                val s = com.lkaesberg.mensaapp.i18n.LocalStrings.current
+                Box(modifier = Modifier.fillMaxSize()) {
+                    EmptyState(
+                        title = s.offlineTitle,
+                        subtitle = s.offlineHint,
+                        icon = Icons.Filled.CloudOff,
+                        actionLabel = s.reload,
+                        actionEnabled = !refreshing,
+                        onAction = { state.refreshAll(scope) },
+                    )
+                }
+            } else if (activeMeals.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     EmptyState(
                         title = "Heute steht noch nichts auf dem Plan.",
@@ -250,6 +278,7 @@ fun FeedScreen(
                 // past that — i.e., Zentralmensa Mo–Do (and the upstream
                 // doesn't return afternoon rows for anyone else anyway).
                 val locale = com.lkaesberg.mensaapp.i18n.LocalAppLocale.current
+                val s = com.lkaesberg.mensaapp.i18n.LocalStrings.current
                 val openClose = selectedCanteen?.let { state.openCloseFor(it, pageDate) }
                 // Canteens without afternoon service render the full open
                 // window as lunch — capping at 14:30 only makes sense when
@@ -275,36 +304,38 @@ fun FeedScreen(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    if (lunchMeals.isNotEmpty()) {
-                        item(key = "sep-lunch") {
-                            TimeSeparator(label = lunchLabel)
+                    for ((period, label, meals) in listOf(
+                        Triple("lunch", lunchLabel, lunchMeals),
+                        Triple("afternoon", afternoonLabel, afternoonMeals),
+                    )) {
+                        if (meals.isEmpty()) continue
+                        item(key = "sep-$period") {
+                            TimeSeparator(label = label)
                         }
-                        items(lunchMeals, key = { "lunch-${it.id}" }) { md ->
-                            FeedMealCard(
-                                state = state,
-                                md = md,
-                                favoriteIds = favoriteIds,
-                                userRole = userRole,
-                                showAsClosed = showAsClosed,
-                                forceActive = keepTodayActive,
-                                onOpenMealDetail = onOpenMealDetail,
-                            )
-                        }
-                    }
-                    if (afternoonMeals.isNotEmpty()) {
-                        item(key = "sep-afternoon") {
-                            TimeSeparator(label = afternoonLabel)
-                        }
-                        items(afternoonMeals, key = { "afternoon-${it.id}" }) { md ->
-                            FeedMealCard(
-                                state = state,
-                                md = md,
-                                favoriteIds = favoriteIds,
-                                userRole = userRole,
-                                showAsClosed = showAsClosed,
-                                forceActive = keepTodayActive,
-                                onOpenMealDetail = onOpenMealDetail,
-                            )
+                        // Already in MenuStructure.feedOrder: mains, staples, sides, desserts.
+                        // Desserts need no header: the card itself is labelled "Dessert".
+                        for ((section, sectionMeals) in meals.groupBy { MenuStructure.sectionOf(it, staples) }) {
+                            val header = when (section) {
+                                MenuSection.Staples -> s.sectionStaples
+                                MenuSection.Sides -> s.sectionSides
+                                MenuSection.Mains, MenuSection.Desserts -> null
+                            }
+                            if (header != null) {
+                                item(key = "hdr-$period-$section") {
+                                    MenuSectionHeader(label = header)
+                                }
+                            }
+                            items(sectionMeals, key = { "$period-${it.id}" }) { md ->
+                                FeedMealCard(
+                                    state = state,
+                                    md = md,
+                                    favoriteIds = favoriteIds,
+                                    userRole = userRole,
+                                    showAsClosed = showAsClosed,
+                                    forceActive = keepTodayActive,
+                                    onOpenMealDetail = onOpenMealDetail,
+                                )
+                            }
                         }
                     }
                 }
@@ -329,6 +360,16 @@ private fun FeedMealCard(
     val info = state.selectedInfo()
     val resolved = PriceResolver.forMealDate(md, info)
     val priceText = resolved?.textFor(userRole)?.takeIf { it.isNotBlank() }
+    if (MenuStructure.isCounter(md)) {
+        CounterCard(
+            mealDate = md,
+            onClick = { onOpenMealDetail(md) },
+            priceText = priceText,
+            forceDeactivated = showAsClosed,
+            forceActive = forceActive,
+        )
+        return
+    }
     MealCard(
         mealDate = md,
         isFavorite = isFav,

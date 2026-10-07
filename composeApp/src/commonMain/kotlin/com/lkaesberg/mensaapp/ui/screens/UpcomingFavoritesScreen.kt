@@ -40,6 +40,7 @@ import com.lkaesberg.mensaapp.MealDate
 import com.lkaesberg.mensaapp.MealsAppState
 import com.lkaesberg.mensaapp.containsFavorite
 import com.lkaesberg.mensaapp.data.MealEnrichment
+import com.lkaesberg.mensaapp.data.MenuStructure
 import com.lkaesberg.mensaapp.i18n.LocalAppLocale
 import com.lkaesberg.mensaapp.i18n.LocalStrings
 import com.lkaesberg.mensaapp.i18n.titleFor
@@ -260,7 +261,7 @@ private fun UpcomingFavoriteRow(
                 if (md.category.isNotBlank()) {
                     Text("·", color = palette.sub, fontSize = 11.sp)
                     Text(
-                        text = md.category,
+                        text = MenuStructure.displayCategory(md.category),
                         color = palette.sub,
                         fontSize = 11.sp,
                     )

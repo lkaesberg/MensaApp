@@ -60,6 +60,7 @@ object MealEnrichment {
                 trimmed.startsWith('(') -> null
                 trimmed.endsWith(')') -> null
                 codeFragmentRegex.matches(trimmed) -> null
+                MenuStructure.isConnectorOnly(trimmed) -> null
                 else -> trimmed
             }
         }

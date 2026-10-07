@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.lkaesberg.mensaapp.MealsAppState
 import com.lkaesberg.mensaapp.containsFavorite
 import com.lkaesberg.mensaapp.data.MealEnrichment
+import com.lkaesberg.mensaapp.data.MenuStructure
 import com.lkaesberg.mensaapp.ui.MensaTheme
 import com.lkaesberg.mensaapp.ui.MonoNumericStyle
 import com.lkaesberg.mensaapp.ui.components.DietPip
@@ -89,7 +90,7 @@ fun DishStatsScreen(
                 DishStat(
                     title = title,
                     icons = md.meals?.icons.orEmpty(),
-                    category = md.category,
+                    category = MenuStructure.displayCategory(md.category),
                     count = pairs.size,
                     lastDate = mostRecentDate,
                     md = md,

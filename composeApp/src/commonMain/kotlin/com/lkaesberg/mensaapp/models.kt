@@ -38,6 +38,14 @@ data class Meal(
     @SerialName("sides_en") val sidesEn: List<String>? = null,
     @SerialName("rating_avg") val ratingAvg: Float? = null,
     @SerialName("recipe_name") val recipeName: String? = null,
+
+    // 2026-10-08 menu-structure migration. course: main | soup | side | salad
+    // | dessert. alternatives: other options at the same counter (a side
+    // counter's other sides, a dessert's other desserts) — `sides` stays
+    // "served with this dish". All null on rows synced before the migration.
+    val course: String? = null,
+    val alternatives: List<String>? = null,
+    @SerialName("alternatives_en") val alternativesEn: List<String>? = null,
 )
 
 @Serializable
@@ -59,6 +67,8 @@ data class MealDate(
     // the canteen is open; >0 = lunch-only. Primary signal for the
     // Mittag/Nachmittag split at Zentralmensa.
     val mittag: Int? = null,
+    // Upstream `<preis_pos>` (2026-10-08): the canteen's own counter order.
+    @SerialName("sort_order") val sortOrder: Int? = null,
 
     // Per-dish prices populated by the new API scraper (2026-05-05).
     // Nullable for rows scraped before the migration.

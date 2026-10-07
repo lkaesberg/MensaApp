@@ -3,6 +3,7 @@ package com.lkaesberg.mensaapp.i18n
 import com.lkaesberg.mensaapp.Meal
 import com.lkaesberg.mensaapp.MealDate
 import com.lkaesberg.mensaapp.data.Locale
+import com.lkaesberg.mensaapp.data.MenuStructure
 
 /**
  * Locale-aware accessors for meal text. The new API populates English
@@ -19,8 +20,13 @@ fun Meal.descriptionFor(locale: Locale): String =
     else description ?: fullText
 
 fun Meal.sidesFor(locale: Locale): List<String> =
-    if (locale == Locale.En && !sidesEn.isNullOrEmpty()) sidesEn
-    else sides.orEmpty()
+    (if (locale == Locale.En && !sidesEn.isNullOrEmpty()) sidesEn else sides.orEmpty())
+        .filterNot { MenuStructure.isConnectorOnly(it) }
+
+/** Other options at the same counter (side counters, desserts, buffets). */
+fun Meal.alternativesFor(locale: Locale): List<String> =
+    if (locale == Locale.En && !alternativesEn.isNullOrEmpty()) alternativesEn
+    else alternatives.orEmpty()
 
 fun MealDate.titleFor(locale: Locale): String =
     meals?.titleFor(locale) ?: ""

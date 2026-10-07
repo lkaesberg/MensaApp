@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.lkaesberg.mensaapp.MealDate
 import com.lkaesberg.mensaapp.MealsAppState
 import com.lkaesberg.mensaapp.data.MealEnrichment
+import com.lkaesberg.mensaapp.data.MenuStructure
 import com.lkaesberg.mensaapp.ui.MensaTheme
 import com.lkaesberg.mensaapp.ui.MonoNumericStyle
 import com.lkaesberg.mensaapp.ui.components.DietPip
@@ -200,7 +201,7 @@ fun SearchScreen(
                         Plate(meal = md.meals, size = 64.dp, radius = 10.dp)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = md.category.uppercase(),
+                                text = MenuStructure.displayCategory(md.category).uppercase(),
                                 color = palette.forest,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,

@@ -51,10 +51,12 @@ import com.lkaesberg.mensaapp.MealDate
 import com.lkaesberg.mensaapp.MealsAppState
 import com.lkaesberg.mensaapp.containsFavorite
 import com.lkaesberg.mensaapp.data.MealEnrichment
+import com.lkaesberg.mensaapp.data.MenuStructure
 import com.lkaesberg.mensaapp.data.PriceResolver
 import com.lkaesberg.mensaapp.data.UserRole
 import com.lkaesberg.mensaapp.i18n.LocalAppLocale
 import com.lkaesberg.mensaapp.i18n.LocalStrings
+import com.lkaesberg.mensaapp.i18n.alternativesFor
 import com.lkaesberg.mensaapp.i18n.sidesFor
 import com.lkaesberg.mensaapp.i18n.titleFor
 import com.lkaesberg.mensaapp.ui.MensaTheme
@@ -225,7 +227,7 @@ fun MealDetailScreen(
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
                     Text(
-                        text = "${target.category.uppercase()} · ${if ((target.mealPeriod ?: "lunch").lowercase() == "afternoon") "NACHMITTAG" else "MITTAG"}",
+                        text = "${MenuStructure.displayCategory(target.category).uppercase()} · ${if ((target.mealPeriod ?: "lunch").lowercase() == "afternoon") "NACHMITTAG" else "MITTAG"}",
                         color = Color.White,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -238,8 +240,12 @@ fun MealDetailScreen(
             Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                 Spacer(Modifier.height(8.dp))
                 val locale = LocalAppLocale.current
+                // A side/dessert counter is titled by the counter, not by
+                // whichever of its options upstream happened to list first.
+                val isCounter = MenuStructure.isCounter(target)
                 Text(
-                    text = target.meals?.titleFor(locale)?.takeIf { it.isNotBlank() }
+                    text = if (isCounter) MenuStructure.displayCategory(target.category)
+                    else target.meals?.titleFor(locale)?.takeIf { it.isNotBlank() }
                         ?: enriched.cleanTitle.ifBlank { target.meals?.title.orEmpty() },
                     color = palette.ink,
                     fontSize = 24.sp,
@@ -262,7 +268,7 @@ fun MealDetailScreen(
                         .filter { it.toEpochDays() < todayEpoch }
                         .maxByOrNull { it.toEpochDays() }
                 }
-                if (lastServed != null) {
+                if (lastServed != null && !isCounter) {
                     Spacer(Modifier.height(8.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -332,34 +338,17 @@ fun MealDetailScreen(
         }
         // Sides — locale-aware (English variants from <essen2_eng>, with
         // German fallback) and falling back to the enrichment-derived list
-        // for legacy rows where structured sides aren't populated.
+        // for legacy rows where structured sides aren't populated. A side or
+        // dessert counter lists what it offers instead: those aren't sides of
+        // the headline item but alternatives to it.
         item {
             val locale = LocalAppLocale.current
-            val sidesList = (target.meals?.sidesFor(locale).orEmpty()).ifEmpty { enriched.sides }
-            if (sidesList.isNotEmpty()) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 22.dp)) {
-                    Text(
-                        text = LocalStrings.current.sides,
-                        color = palette.sub,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    sidesList.forEachIndexed { i, s ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(palette.forest))
-                            Text(s, color = palette.ink, fontSize = 14.sp)
-                        }
-                        if (i < sidesList.size - 1) {
-                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(palette.hair))
-                        }
-                    }
-                }
+            val strings = LocalStrings.current
+            if (MenuStructure.isCounter(target)) {
+                BulletList(strings.counterOptions, MenuStructure.counterOptions(target, locale))
+            } else {
+                BulletList(strings.sides, target.meals?.sidesFor(locale).orEmpty().ifEmpty { enriched.sides })
+                BulletList(strings.alsoAtCounter, target.meals?.alternativesFor(locale).orEmpty())
             }
         }
         if (priceTriple != null) {
@@ -448,6 +437,35 @@ fun MealDetailScreen(
     }
 
     } // wrapper Box
+}
+
+@Composable
+private fun BulletList(label: String, entries: List<String>) {
+    if (entries.isEmpty()) return
+    val palette = MensaTheme.palette
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 22.dp)) {
+        Text(
+            text = label,
+            color = palette.sub,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        entries.forEachIndexed { i, entry ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(palette.forest))
+                Text(entry, color = palette.ink, fontSize = 14.sp)
+            }
+            if (i < entries.size - 1) {
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(palette.hair))
+            }
+        }
+    }
 }
 
 @Composable

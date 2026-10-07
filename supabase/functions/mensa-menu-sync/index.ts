@@ -30,12 +30,8 @@ import {
   supabase,
 } from '../_shared/supabase.ts';
 import { CANTEEN_SLUGS, CANTEEN_EXTERNAL_IDS, resolveKnownCanteen } from '../_shared/canteens.ts';
-import {
-  CODE_RE,
-  parseEuroCents,
-  splitAndSanitiseSides,
-  stripAllergenParens,
-} from '../_shared/text.ts';
+import { CODE_RE, parseEuroCents, stripAllergenParens } from '../_shared/text.ts';
+import { classifyCourse, Course, isNonDishEntry, parseAccompaniments } from '../_shared/menu.ts';
 
 const URL_BASE = 'https://app.studentenwerk-goettingen.de/api/mensaplanAll';
 const SCRAPE_CONCURRENCY = 4;
@@ -52,8 +48,15 @@ interface Speise {
   description: string;   // <essen2>
   titleEn: string | null;
   descriptionEn: string | null;
+  // main / soup / side / salad / dessert — derived from the category; decides
+  // how <essen2> is read (accompaniments vs. other options at the counter).
+  course: Course;
   sides: string[];
   sidesEn: string[];
+  alternatives: string[];
+  alternativesEn: string[];
+  // <preis_pos> — the canteen's own counter order, used to sort the day.
+  sortOrder: number | null;
   recipeName: string | null;
   fullText: string;      // = rawTitle (kept for legacy unique-key compat)
   icons: string[];
@@ -152,11 +155,18 @@ function parseSpeise(speise: Element, mensaName: string): Speise | null {
   // (meal_id, canteen_id, served_on) UNIQUE — and they're not menu items
   // anyway. Skip them.
   if (!rawTitle.trim()) return null;
+  const category = txt(speise, 'preis');
+  // Closed days come through as one "Heute leider geschlossen" <speise>.
+  // Not a dish; the day's deactivation pass handles the closure.
+  if (isNonDishEntry(rawTitle, category)) return null;
   const description = txt(speise, 'essen2');
   const titleEn = txt(speise, 'essen_eng') || null;
   const descriptionEn = txt(speise, 'essen2_eng') || null;
   const cleanTitle = stripAllergenParens(rawTitle);
-  const category = txt(speise, 'preis');
+  const course = classifyCourse(category);
+  const de = parseAccompaniments(description, course, 'de');
+  const en = parseAccompaniments(descriptionEn, course, 'en');
+  const sortRaw = parseInt(txt(speise, 'preis_pos'), 10);
   const recipeName = txt(speise, 'rezeptname') || null;
   const sterneRaw = parseFloat(txt(speise, 'sterne') || 'NaN');
   const rating = Number.isFinite(sterneRaw) && sterneRaw > 0 ? sterneRaw : null;
@@ -179,8 +189,12 @@ function parseSpeise(speise: Element, mensaName: string): Speise | null {
     description,
     titleEn,
     descriptionEn,
-    sides: splitAndSanitiseSides(description),
-    sidesEn: splitAndSanitiseSides(descriptionEn ?? ''),
+    course,
+    sides: de.sides,
+    sidesEn: en.sides,
+    alternatives: de.alternatives,
+    alternativesEn: en.alternatives,
+    sortOrder: Number.isFinite(sortRaw) ? sortRaw : null,
     recipeName,
     fullText: rawTitle, // keep raw with codes as the legacy unique key
     icons: iconsFor(speise),
@@ -194,7 +208,16 @@ function parseSpeise(speise: Element, mensaName: string): Speise | null {
   };
 }
 
-function parseDayXml(xml: string): Speise[] {
+interface ParsedDay {
+  speisen: Speise[];
+  // <mensa name>s that published something we understood: at least one dish,
+  // or the closed-day placeholder. Closed-only canteens still need resolving
+  // so their stale rows for the day get deactivated; a block of entries we
+  // failed to parse does not count, so a format change can't wipe a plan.
+  mensaNames: string[];
+}
+
+function parseDayXml(xml: string): ParsedDay {
   // deno-dom's HTML parser drops <![CDATA[...]]> sections (treats them as
   // comments), which would leave every <date>/<essen>/etc. textContent
   // empty. The upstream wraps every text node in CDATA, so strip the
@@ -204,18 +227,23 @@ function parseDayXml(xml: string): Speise[] {
   // by the parser as expected.
   const stripped = xml.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
   const doc = new DOMParser().parseFromString(stripped, 'text/html');
-  if (!doc) return [];
-  const out: Speise[] = [];
+  if (!doc) return { speisen: [], mensaNames: [] };
+  const speisen: Speise[] = [];
+  const mensaNames: string[] = [];
   for (const mensaNode of doc.querySelectorAll('mensa')) {
     const mensa = mensaNode as Element;
     const name = mensa.getAttribute('name');
     if (!name) continue;
+    let published = false;
     for (const speiseNode of mensa.querySelectorAll('speise')) {
-      const speise = parseSpeise(speiseNode as Element, name);
-      if (speise) out.push(speise);
+      const el = speiseNode as Element;
+      const speise = parseSpeise(el, name);
+      if (speise) speisen.push(speise);
+      published ||= speise !== null || isNonDishEntry(txt(el, 'essen'), txt(el, 'preis'));
     }
+    if (published) mensaNames.push(name);
   }
-  return out;
+  return { speisen, mensaNames };
 }
 
 // ───── DB ──────────────────────────────────────────────────────────────────
@@ -234,13 +262,13 @@ interface UpsertResult {
   fail: number;
 }
 
-async function upsertDay(speisen: Speise[]): Promise<UpsertResult> {
+async function upsertDay(speisen: Speise[], mensaNames: string[]): Promise<UpsertResult> {
   const seenByDay = new Map<string, Set<string>>();
   const resolvedCanteenIds = new Set<string>();
   const unknownCanteens: string[] = [];
   let ok = 0;
   let fail = 0;
-  if (speisen.length === 0) {
+  if (mensaNames.length === 0) {
     return { seenByDay, resolvedCanteenIds, unknownCanteens, ok, fail };
   }
 
@@ -255,7 +283,7 @@ async function upsertDay(speisen: Speise[]): Promise<UpsertResult> {
     //    not a new venue. Report it and skip — auto-creating is what forked
     //    "CGIN" off "CGiN" on 2026-07-24. Fixing a future one is a line in
     //    CANTEEN_NAME_ALIASES.
-    const canteenNames = [...new Set(speisen.map((s) => s.mensa))];
+    const canteenNames = [...new Set(mensaNames)];
     const canteenIdByName = new Map<string, string>();
     for (const name of canteenNames) {
       const id = await getOrCreateCanteenId(name, { allowCreate: false });
@@ -293,6 +321,9 @@ async function upsertDay(speisen: Speise[]): Promise<UpsertResult> {
         clean_title: s.cleanTitle,
         description: s.description,
         sides: s.sides,
+        course: s.course,
+        alternatives: s.alternatives,
+        alternatives_en: s.alternativesEn,
         icons: s.icons,
         allergens: s.allergens,
         additives: s.additives,
@@ -305,6 +336,9 @@ async function upsertDay(speisen: Speise[]): Promise<UpsertResult> {
       });
     }
     const mealPayloads = [...mealRowByExternalId.values()];
+    if (mealPayloads.length === 0) {
+      return { seenByDay, resolvedCanteenIds, unknownCanteens, ok, fail };
+    }
     const { data: upsertedMeals, error: mealErr } = await supabase
       .from('meals')
       .upsert(mealPayloads, { onConflict: 'external_id' })
@@ -336,6 +370,7 @@ async function upsertDay(speisen: Speise[]): Promise<UpsertResult> {
         category: s.category,
         deactivated_at: null,
         mittag: s.mittag,
+        sort_order: s.sortOrder,
         price_students: s.priceStudents,
         price_employees: s.priceEmployees,
         price_guests: s.priceGuests,
@@ -411,10 +446,9 @@ async function deactivateStale(
 
 // ───── HTTP entry ──────────────────────────────────────────────────────────
 
-interface DayResult {
+interface DayResult extends ParsedDay {
   date: string;
   ok: boolean;
-  speisen: Speise[];
 }
 
 function isoDate(d: Date): string {
@@ -424,11 +458,11 @@ function isoDate(d: Date): string {
 async function fetchDay(date: string): Promise<DayResult> {
   const url = `${URL_BASE}?token=1&datum=${date}`;
   const res = await fetchWithRetry(url, 'application/xml');
-  if (!res || !res.ok) return { date, ok: false, speisen: [] };
+  if (!res || !res.ok) return { date, ok: false, speisen: [], mensaNames: [] };
   const xml = await res.text();
-  const speisen = parseDayXml(xml);
+  const { speisen, mensaNames } = parseDayXml(xml);
   log(`✓ ${date} — ${speisen.length} dishes`);
-  return { date, ok: true, speisen };
+  return { date, ok: true, speisen, mensaNames };
 }
 
 Deno.serve(async (req) => {
@@ -461,6 +495,7 @@ Deno.serve(async (req) => {
 
   // Aggregate.
   const allSpeisen: Speise[] = [];
+  const allMensaNames: string[] = [];
   const successfulDays: string[] = [];
   let totalOk = 0;
   let totalFail = 0;
@@ -468,8 +503,9 @@ Deno.serve(async (req) => {
     if (!r.ok) continue;
     successfulDays.push(r.date);
     allSpeisen.push(...r.speisen);
+    allMensaNames.push(...r.mensaNames);
   }
-  const upsert = await upsertDay(allSpeisen);
+  const upsert = await upsertDay(allSpeisen, allMensaNames);
   totalOk = upsert.ok;
   totalFail = upsert.fail;
   const deactivated = await deactivateStale(

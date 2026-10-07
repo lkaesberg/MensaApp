@@ -51,6 +51,17 @@ class MealsAppState(
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
+    /**
+     * The last canteen or menu fetch failed (offline, server unreachable).
+     * Lets the feed offer a reload instead of claiming nothing is planned.
+     * Cleared by the next successful menu load.
+     */
+    private val _loadFailed = MutableStateFlow(false)
+    val loadFailed: StateFlow<Boolean> = _loadFailed.asStateFlow()
+
+    /** Canteen the current [mealsByDate] belongs to — a failed reload keeps it only for that canteen. */
+    private var mealsCanteenId: String? = null
+
     private val _userRole = MutableStateFlow(UserRole.fromKey(settings.getStringOrNull(UserRole.SETTINGS_KEY)))
     val userRole: StateFlow<UserRole> = _userRole.asStateFlow()
 
@@ -144,7 +155,14 @@ class MealsAppState(
             // recognise (e.g. cafés synced via mensa-hours-sync that we don't
             // surface in the picker). This keeps Nordmensa-style ghosts off
             // the screen if the row lingers in DB.
-            val list = repository.getCanteens().filter { CanteenStaticData.matchFor(it.name) != null }
+            val fetched = try {
+                repository.fetchCanteens()
+            } catch (e: Throwable) {
+                println("Error fetching canteens: ${e.message}")
+                _loadFailed.value = true
+                return@launch
+            }
+            val list = fetched.filter { CanteenStaticData.matchFor(it.name) != null }
             _canteens.value = list
             if (_selectedCanteen.value == null) {
                 val rememberedSlug = settings.getStringOrNull("selected_canteen_slug")
@@ -171,8 +189,22 @@ class MealsAppState(
         val canteen = _selectedCanteen.value ?: return
         scope.launch {
             _refreshing.value = true
-            _mealsByDate.value = repository.getMealsForCanteen(canteen.id)
-            _refreshing.value = false
+            try {
+                _mealsByDate.value = repository.fetchMealsForCanteen(canteen.id)
+                mealsCanteenId = canteen.id
+                _loadFailed.value = false
+            } catch (e: Throwable) {
+                println("Error fetching meals for canteen ${canteen.id}: ${e.message}")
+                // Keep what's on screen if it's this canteen's plan; never show
+                // another canteen's menu under the new name.
+                if (mealsCanteenId != canteen.id) {
+                    _mealsByDate.value = emptyMap()
+                    mealsCanteenId = null
+                }
+                _loadFailed.value = true
+            } finally {
+                _refreshing.value = false
+            }
         }
     }
 

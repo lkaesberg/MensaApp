@@ -1,17 +1,44 @@
-// supabase/functions/generate-meal-images/index.ts
+// supabase/functions/smooth-endpoint/index.ts
+//
+// Generates the shared ("generic") photo for meals that don't have one yet
+// and stores it at mensa-food/generic/<slug>.jpg. Runs on an hourly cron;
+// `?limit=N` caps the number of images per run (default MAX_IMAGES or 8).
+//
+// Meals are grouped by their title *without allergen codes*: the raw title
+// drifts day to day ("Senf-Kartoffeln (j)" → "Senf-Kartoffeln (3,j)"), and
+// grouping on it generated a separate photo per code variant. Dishes on the
+// plan in the next week go first, so today's menu isn't the one waiting.
+//
+// Expected env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY,
+// MAX_IMAGES (optional per-run default).
+
 // deno-lint-ignore-file no-explicit-any
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.6';
 import OpenAI from 'https://deno.land/x/openai@v4.24.0/mod.ts';
-// Import ImageScript for compression/resizing
 import { Image } from 'https://deno.land/x/imagescript@1.2.15/mod.ts';
-/* Expected env vars
-      SUPABASE_URL
-      SUPABASE_SERVICE_ROLE_KEY
-      OPENAI_API_KEY
-      MAX_IMAGES           (optional per-run default)
-*/ /* ───────── helpers ───────── */ const log = (msg, ...args)=>console.log(`${new Date().toISOString()}  ${msg}`, ...args);
-const sleep = (ms)=>new Promise((r)=>setTimeout(r, ms));
-async function retry(fn, retries = 2, delay = 2_000, tag = 'retry') {
+import { log, sleep, supabase } from '../_shared/supabase.ts';
+import { stripAllergenParens } from '../_shared/text.ts';
+import { buildImagePrompt } from '../_shared/image_prompt.ts';
+import { isNonDishEntry } from '../_shared/menu.ts';
+
+const DELAY_PER_IMAGE_MS = 500; // ≈2 image requests / second
+const UPCOMING_DAYS = 7;
+
+interface MealRow {
+  id: string;
+  title: string;
+  clean_title: string | null;
+  title_en: string | null;
+  course: string | null;
+  sides: string[] | null;
+}
+
+interface Group {
+  core: string;
+  meals: MealRow[];
+  upcoming: boolean;
+}
+
+async function retry<T>(fn: () => Promise<T>, retries = 2, delay = 2_000, tag = 'retry'): Promise<T> {
   try {
     return await fn();
   } catch (err) {
@@ -21,124 +48,138 @@ async function retry(fn, retries = 2, delay = 2_000, tag = 'retry') {
     return retry(fn, retries - 1, delay * 2, tag);
   }
 }
-/* ───────── main handler ───────── */ Deno.serve(async (req)=>{
+
+// Same derivation as public.generic_image_slug(): JS \W without the /u flag
+// is ASCII-only, so "ü" becomes "_" — keep it that way, paths depend on it.
+function imageSlug(title: string): string {
+  return title.replace(/\W+/g, '_').toLowerCase();
+}
+
+/** The row with the most structure (course + sides) drives the prompt. */
+function representative(meals: MealRow[]): MealRow {
+  return [...meals].sort((a, b) =>
+    (b.course ? 2 : 0) + (b.sides?.length ? 1 : 0) - ((a.course ? 2 : 0) + (a.sides?.length ? 1 : 0))
+  )[0];
+}
+
+async function loadGroups(limit: number): Promise<Group[]> {
+  const { data, error } = await supabase
+    .from('meals')
+    .select('id, title, clean_title, title_en, course, sides')
+    .is('image_path_generic', null);
+  if (error) throw error;
+
+  const start = new Date();
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + UPCOMING_DAYS);
+  const { data: upcomingRows, error: upErr } = await supabase
+    .from('meal_dates')
+    .select('meal_id')
+    .gte('served_on', start.toISOString().slice(0, 10))
+    .lte('served_on', end.toISOString().slice(0, 10))
+    .is('deactivated_at', null);
+  if (upErr) throw upErr;
+  const upcomingIds = new Set((upcomingRows ?? []).map((r: any) => r.meal_id as string));
+
+  const groups = new Map<string, Group>();
+  for (const m of (data ?? []) as MealRow[]) {
+    const core = (m.clean_title?.trim() || stripAllergenParens(m.title ?? '')).trim();
+    if (!core || isNonDishEntry(core, '')) continue; // would fail every run and eat a slot
+    let g = groups.get(core);
+    if (!g) groups.set(core, (g = { core, meals: [], upcoming: false }));
+    g.meals.push(m);
+    g.upcoming ||= upcomingIds.has(m.id);
+  }
+  return [...groups.values()]
+    .sort((a, b) => Number(b.upcoming) - Number(a.upcoming) || b.meals.length - a.meals.length)
+    .slice(0, limit);
+}
+
+async function generate(openai: OpenAI, group: Group): Promise<string> {
+  const rep = representative(group.meals);
+  const prompt = buildImagePrompt({
+    title: group.core,
+    titleEn: rep.title_en,
+    course: rep.course,
+    sides: rep.sides,
+  });
+  if (!prompt) throw new Error('not a dish — skipped');
+
+  const imgResp = await retry(
+    () => openai.images.generate({ model: 'gpt-image-1', prompt, n: 1, size: '1024x1024', quality: 'low' } as any),
+    2,
+    2_000,
+    `openai-${group.core}`,
+  );
+  const b64 = imgResp.data?.[0]?.b64_json;
+  if (!b64) throw new Error('No image returned');
+  const binStr = atob(b64);
+  const png = new Uint8Array(binStr.length);
+  for (let i = 0; i < binStr.length; i++) png[i] = binStr.charCodeAt(i);
+
+  // 512px JPEG: plenty for the 88dp card and the detail hero, ~10× smaller than the PNG.
+  const image = await Image.decode(png);
+  image.resize(512, 512);
+  const jpeg = await image.encodeJPEG(75);
+
+  const path = `generic/${imageSlug(group.core)}.jpg`;
+  const upRes = await supabase.storage.from('mensa-food').upload(path, jpeg, {
+    contentType: 'image/jpeg',
+    upsert: true,
+  });
+  if (upRes.error) throw upRes.error;
+
+  const { error } = await supabase
+    .from('meals')
+    .update({ image_path_generic: path })
+    .in('id', group.meals.map((m) => m.id));
+  if (error) throw error;
+  log(`BG: ✔ "${group.core}" [${rep.course ?? 'main?'}] (${(jpeg.length / 1024).toFixed(1)}kb)`);
+  return path;
+}
+
+Deno.serve(async (req) => {
   log('── invocation ──');
-  /* ---- parse & validate ------------------------------------------------- */ const url = new URL(req.url);
+  const url = new URL(req.url);
   const limit = Number(url.searchParams.get('limit') ?? Deno.env.get('MAX_IMAGES') ?? '8');
   if (!Number.isFinite(limit) || limit <= 0) {
-    return new Response('`limit` must be a positive integer', {
-      status: 400
-    });
+    return new Response('`limit` must be a positive integer', { status: 400 });
   }
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const openaiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!supabaseUrl || !serviceKey || !openaiKey) {
-    log('Missing one or more env vars');
-    return new Response('Missing env vars', {
-      status: 500
-    });
+  if (!openaiKey) {
+    log('Missing OPENAI_API_KEY');
+    return new Response('Missing env vars', { status: 500 });
   }
-  const supabase = createClient(supabaseUrl, serviceKey);
-  /* ---- fetch all rows without generic image ----------------------------- */ const selRes = await supabase.from('meals').select('id, title, full_text').is('image_path_generic', null);
-  if (selRes.error) {
-    log('Select error', selRes.error);
-    return new Response('Database error', {
-      status: 500
-    });
+
+  let groups: Group[];
+  try {
+    groups = await loadGroups(limit);
+  } catch (e) {
+    log('Select error', e);
+    return new Response('Database error', { status: 500 });
   }
-  const meals = selRes.data ?? [];
-  // group by title
-  const grouped = {};
-  for (const m of meals){
-    if (!grouped[m.title]) grouped[m.title] = [];
-    grouped[m.title].push(m);
-  }
-  // sort titles by group size desc and take top N
-  const sortedTitles = Object.entries(grouped).sort((a, b)=>b[1].length - a[1].length).slice(0, limit).map(([title, list])=>({
-      title,
-      meals: list
-    }));
-  const processingTitles = sortedTitles.map((t)=>t.title);
-  /* ---- background processor --------------------------------------------- */ const bgPromise = (async ()=>{
-    const openai = new OpenAI({
-      apiKey: openaiKey
-    });
-    const delayPerImage = 500; // ≈2 img requests / second
-    const results = [];
-    log(`BG: starting, ${sortedTitles.length} titles`);
-    for (const entry of sortedTitles){
-      const title = entry.title;
-      log(`BG: title "${title}" …`);
+
+  const bgPromise = (async () => {
+    const openai = new OpenAI({ apiKey: openaiKey });
+    log(`BG: starting, ${groups.length} titles`);
+    let ok = 0;
+    for (const group of groups) {
       try {
-        // use first meal's full_text as representative
-        const meal = entry.meals[0];
-        const cleaned = meal.full_text.replace(/\s*\([^)]*\)/g, '').trim();
-        const prompt = `High-quality food photo on a white background. ` + `The main food should be on a plate and the sides in small bowls. ` + `Everything should be on a white plastic tray. No Text: ${cleaned}`;
-        // generate image
-        const imgResp = await retry(()=>openai.images.generate({
-            model: 'gpt-image-1',
-            prompt,
-            n: 1,
-            size: '1024x1024',
-            quality: 'low'
-          }), 2, 2_000, `openai-${title}`);
-        if (!imgResp.data?.length || !imgResp.data[0].b64_json) {
-          throw new Error('No image returned');
-        }
-        const b64 = imgResp.data[0].b64_json;
-        const binStr = atob(b64);
-        const imgBuf = new Uint8Array(binStr.length);
-        for(let i = 0; i < binStr.length; i++){
-          imgBuf[i] = binStr.charCodeAt(i);
-        }
-        /* ──── COMPRESSION START ──── */ // 1. Decode PNG
-        const image = await Image.decode(imgBuf);
-        // 2. Resize (Optional: 1024 is usually too big for UI cards. 512 is plenty crisp)
-        // If you strictly want 1024, remove this line.
-        image.resize(512, 512);
-        // 3. Encode to JPEG at 75% quality (Massive size reduction vs PNG)
-        const compressedBuf = await image.encodeJPEG(75);
-        /* ──── COMPRESSION END ──── */ // upload to storage (Note: changed extension to .jpg)
-        const safeTitle = title.replace(/\W+/g, '_').toLowerCase();
-        const path = `generic/${safeTitle}.jpg`;
-        const upRes = await supabase.storage.from('mensa-food').upload(path, compressedBuf, {
-          contentType: 'image/jpeg',
-          upsert: true
-        });
-        if (upRes.error) throw upRes.error;
-        // update all rows for this title
-        const updRes = await supabase.from('meals').update({
-          image_path_generic: path
-        }).eq('title', title);
-        if (updRes.error) throw updRes.error;
-        log(`BG: ✔ title "${title}" (Size: ${(compressedBuf.length / 1024).toFixed(1)}kb)`);
-        results.push({
-          title,
-          status: 'ok',
-          path
-        });
+        await generate(openai, group);
+        ok++;
       } catch (err) {
-        log(`BG: ✖ title "${title}"`, err);
-        results.push({
-          title,
-          status: 'error',
-          message: `${err}`
-        });
+        log(`BG: ✖ "${group.core}"`, err);
       }
-      await sleep(delayPerImage);
+      await sleep(DELAY_PER_IMAGE_MS);
     }
-    log(`BG: finished run (${results.length} processed)`);
+    log(`BG: finished run (${ok}/${groups.length} ok)`);
   })();
-  /* ---- respond immediately ---------------------------------------------- */ // @ts-ignore: EdgeRuntime is available in Supabase
+
+  // Keep the runtime alive for the background work but answer now.
+  // @ts-ignore: EdgeRuntime is provided by Supabase
   EdgeRuntime?.waitUntil?.(bgPromise);
-  return new Response(JSON.stringify({
-    accepted: true,
-    processing: processingTitles
-  }), {
-    status: 202,
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  });
+  return new Response(
+    JSON.stringify({ accepted: true, processing: groups.map((g) => g.core) }),
+    { status: 202, headers: { 'Content-Type': 'application/json' } },
+  );
 });

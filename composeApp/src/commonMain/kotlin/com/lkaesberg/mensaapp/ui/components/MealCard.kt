@@ -32,8 +32,10 @@ import androidx.compose.ui.unit.sp
 import com.lkaesberg.mensaapp.MealDate
 import com.lkaesberg.mensaapp.data.EnrichedMeal
 import com.lkaesberg.mensaapp.data.MealEnrichment
+import com.lkaesberg.mensaapp.data.MenuStructure
 import com.lkaesberg.mensaapp.i18n.LocalAppLocale
 import com.lkaesberg.mensaapp.i18n.LocalStrings
+import com.lkaesberg.mensaapp.i18n.alternativesFor
 import com.lkaesberg.mensaapp.i18n.sidesFor
 import com.lkaesberg.mensaapp.i18n.titleFor
 import com.lkaesberg.mensaapp.ui.MensaTheme
@@ -95,7 +97,7 @@ fun MealCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Eyebrow(
-                    text = mealDate.category,
+                    text = MenuStructure.displayCategory(mealDate.category),
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Box(
@@ -141,6 +143,17 @@ fun MealCard(
                     lineHeight = 15.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // Buffet counters (Beats&Bites) list several "<dish> auf <base>" pairs.
+            val moreAtCounter = mealDate.meals?.alternativesFor(locale).orEmpty().size
+            if (moreAtCounter > 0) {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = s.moreAtCounter(moreAtCounter),
+                    color = palette.forest,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
             Spacer(Modifier.height(8.dp))
