@@ -397,7 +397,9 @@ private fun FeedMealCard(
     val isFav = favoriteIds.containsFavorite(key) || favoriteIds.containsFavorite(md.meals?.title ?: "")
     val info = state.selectedInfo()
     val resolved = PriceResolver.forMealDate(md, info)
+    val per100g = com.lkaesberg.mensaapp.i18n.LocalStrings.current.per100g
     val priceText = resolved?.textFor(userRole)?.takeIf { it.isNotBlank() }
+        ?.let { if (MenuStructure.isPricedPer100g(md)) "$it $per100g" else it }
     // Side and salad counters are drawn by the side board; this is the dessert.
     if (MenuStructure.isCounter(md)) {
         CounterCard(

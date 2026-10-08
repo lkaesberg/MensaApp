@@ -247,6 +247,19 @@ class MenuStructureTest {
     }
 
     @Test
+    fun pastaBuffet_isPricedPer100g_andItsItemsAreNotSides() {
+        // Zentralmensa, 2026-10-19, as upstream sends it.
+        val buffet = md(
+            "Pasta- Buffet", "Pastabuffet", 150,
+            sides = listOf("Spiralnudeln Totiglioni", "Spaghetti", "Spinat-Käsesauce", "Rucola"),
+        )
+        val menu = md("Menü", "Schnitzel", 80, sides = listOf("Pommes frites"))
+        assertTrue(MenuStructure.isPricedPer100g(buffet))
+        assertFalse(MenuStructure.isPricedPer100g(menu))
+        assertEquals(listOf("Pommes frites"), MenuStructure.menuSides(listOf(buffet, menu)))
+    }
+
+    @Test
     fun sideImagePath_matchesBackendSlug() {
         // smooth-endpoint: name.trim().replace(/\W+/g, '_').toLowerCase() — ASCII-only \W.
         assertEquals("sides/senf_kartoffeln.jpg", MenuStructure.sideImagePath("Senf-Kartoffeln"))

@@ -185,4 +185,9 @@ Deno.test('photoItemsOf: counter options, real sides of a main, dessert options'
     [{ name: 'Rote Grütze mit veganer Vanillesauce', course: 'dessert' }, { name: 'Fruchtquark Ananas', course: 'dessert' }],
   );
   assertEquals(sideImageFile('Senf-Kartoffeln'), 'senf_kartoffeln.jpg');
+  // The Pastabuffet's pastas and sauces are buffet items, not sides.
+  assertEquals(
+    photoItemsOf({ course: 'main', clean_title: 'Pastabuffet', title: 'Pastabuffet', sides: ['Spaghetti', 'Spinatnudeln'], alternatives: [] }),
+    [],
+  );
 });

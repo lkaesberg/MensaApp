@@ -267,9 +267,22 @@ object MenuStructure {
         (sideBoard(meals) { "" } + dessertBoard(meals))
             .flatMapTo(HashSet()) { g -> g.items.map { it.replace(",", " ").trim().lowercase().replace(whitespace, " ") } }
 
-    /** Real sides of the day's mains, first appearance first, without duplicates. */
+    private val weighedBuffet = Regex("""(pasta|salat)buffet""")
+    private val spacesAndHyphens = Regex("""[\s-]""")
+
+    /**
+     * Self-service buffets weighed at the till — the price is per 100 g
+     * (Zentralmensa "Pasta- Buffet": 0,96 €). Their essen2 lists what's on
+     * the buffet, not sides of a dish.
+     */
+    fun isPricedPer100g(md: MealDate): Boolean {
+        val text = (md.category + " " + md.meals?.title.orEmpty()).lowercase().replace(spacesAndHyphens, "")
+        return weighedBuffet.containsMatchIn(text)
+    }
+
+    /** Real sides of the day's mains, first appearance first, without duplicates. Buffets don't count. */
     fun menuSides(meals: List<MealDate>): List<String> = meals
-        .filter { !isCounter(it) }
+        .filter { !isCounter(it) && !isPricedPer100g(it) }
         .flatMap { it.meals?.sidesFor(Locale.De).orEmpty() }
         .filter { isRealSide(it) }
         .distinctBy { it.trim().lowercase() }

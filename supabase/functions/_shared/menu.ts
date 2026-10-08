@@ -296,8 +296,15 @@ export function photoItemsOf(meal: {
         .map((name) => ({ name, course: course ?? (/salat|slaw|salad/i.test(name) ? 'salad' : 'side') }));
     }
     default:
+      // A weighed buffet lists what's on it (pastas, sauces), not sides.
+      if (isWeighedBuffet(title)) return [];
       return sides.filter(isRealSide).map((name) => ({ name, course: /salat|slaw|salad/i.test(name) ? 'salad' : 'side' }));
   }
+}
+
+/** Pasta-/Salatbuffet, priced per 100 g. Mirrors MenuStructure.isPricedPer100g. */
+export function isWeighedBuffet(text: string): boolean {
+  return /(pasta|salat)buffet/.test(text.toLowerCase().replace(/[\s-]/g, ''));
 }
 
 /** Storage file name for a side's photo — same ASCII-only slug as the meal photos. */

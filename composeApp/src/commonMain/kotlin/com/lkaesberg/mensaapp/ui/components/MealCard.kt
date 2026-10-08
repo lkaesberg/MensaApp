@@ -204,7 +204,8 @@ fun MealCard(
             }
             // Matched on the German names, which side favourites are keyed by.
             val favoriteSidesHere = remember(mealDate.meals, favoriteSides) {
-                mealDate.meals?.sidesFor(Locale.De).orEmpty()
+                if (MenuStructure.isPricedPer100g(mealDate)) emptyList() // a buffet's items aren't sides
+                else mealDate.meals?.sidesFor(Locale.De).orEmpty()
                     .filter { MenuStructure.isRealSide(it) && favoriteSides.containsSide(it) }
             }
             if (favoriteSidesHere.isNotEmpty()) {

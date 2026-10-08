@@ -352,13 +352,15 @@ fun MealDetailScreen(
             } else {
                 // Real sides get a star; favourites are keyed by the German name,
                 // lined up by position when the English list has the same length.
+                // A buffet lists what's on it — not sides to pick, so no stars there.
+                val isBuffet = MenuStructure.isPricedPer100g(target)
                 val shown = target.meals?.sidesFor(locale).orEmpty().ifEmpty { enriched.sides }
                 val german = target.meals?.sidesFor(Locale.De).orEmpty().ifEmpty { enriched.sides }
                 BulletList(
                     label = strings.sides,
                     entries = shown,
                     favoriteKeys = shown.mapIndexed { i, side ->
-                        (if (german.size == shown.size) german[i] else side).takeIf { MenuStructure.isRealSide(it) }
+                        (if (german.size == shown.size) german[i] else side).takeIf { !isBuffet && MenuStructure.isRealSide(it) }
                     },
                     favoriteSides = sideFavorites,
                     onToggleFavorite = { state.favoritesManager.toggleSideFavorite(it) },
@@ -378,7 +380,8 @@ fun MealDetailScreen(
                         .padding(16.dp)
                 ) {
                     Text(
-                        text = LocalStrings.current.price,
+                        text = if (MenuStructure.isPricedPer100g(target)) LocalStrings.current.pricePer100g
+                        else LocalStrings.current.price,
                         color = palette.sub,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,

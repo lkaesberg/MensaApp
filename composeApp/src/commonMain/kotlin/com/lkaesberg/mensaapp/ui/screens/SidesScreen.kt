@@ -8,17 +8,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,7 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -92,15 +86,13 @@ fun SidesScreen(
             EmptyState(title = if (desserts) s.noDessertsListed else s.noSidesListed)
             return@Column
         }
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+        LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             groups.forEachIndexed { gi, group ->
-                item(key = "header-$gi", span = { GridItemSpan(maxLineSpan) }) {
+                item(key = "header-$gi") {
                     val info = state.selectedInfo()
                     val price = (group.counter?.let { PriceResolver.forMealDate(it, info) }
                         ?: PriceResolver.forSideKind(group.kind, info))
@@ -125,12 +117,33 @@ fun SidesScreen(
                         }
                     }
                 }
-                items(group.items, key = { "$gi|$it" }) { name ->
-                    SideTile(
-                        name = name,
-                        isFavorite = sideFavorites.containsSide(name),
-                        onToggleFavorite = { state.favoritesManager.toggleSideFavorite(name) },
-                    )
+                // One card per group, a row per option.
+                item(key = "group-$gi") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(palette.surface)
+                            .border(1.dp, palette.hair, RoundedCornerShape(16.dp)),
+                    ) {
+                        group.items.forEachIndexed { i, name ->
+                            if (i > 0) {
+                                // Inset to the text, past the photo.
+                                Box(
+                                    modifier = Modifier
+                                        .padding(start = 104.dp)
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(palette.hair),
+                                )
+                            }
+                            SideRow(
+                                name = name,
+                                isFavorite = sideFavorites.containsSide(name),
+                                onToggleFavorite = { state.favoritesManager.toggleSideFavorite(name) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -138,52 +151,39 @@ fun SidesScreen(
 }
 
 @Composable
-private fun SideTile(
+private fun SideRow(
     name: String,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
 ) {
     val palette = MensaTheme.palette
     val s = LocalStrings.current
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(palette.surface)
-            .border(1.dp, palette.hair, RoundedCornerShape(16.dp))
-            .padding(8.dp),
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
-            SidePhoto(name = name, modifier = Modifier.fillMaxSize())
-            // Same round white button as the meal detail's favourite star.
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.95f))
-                    .clickable { onToggleFavorite() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                    contentDescription = if (isFavorite) s.unfavorite else s.favorite,
-                    tint = if (isFavorite) palette.amber else palette.ink,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
+        SidePhoto(name = name, modifier = Modifier.size(80.dp), radius = 12.dp)
         Text(
             text = name,
             color = palette.ink,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            lineHeight = 17.sp,
-            minLines = 2,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            lineHeight = 18.sp,
             maxLines = 3, // dessert names are whole descriptions
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 2.dp),
+            modifier = Modifier.weight(1f),
         )
+        Box(
+            modifier = Modifier.size(36.dp).clip(CircleShape).clickable { onToggleFavorite() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                contentDescription = if (isFavorite) s.unfavorite else s.favorite,
+                tint = if (isFavorite) palette.amber else palette.sub,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }

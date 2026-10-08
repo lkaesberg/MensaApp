@@ -69,6 +69,8 @@ data class Strings(
     val noSidesListed: String,
     val allergens: String,
     val price: String,
+    val pricePer100g: String,          // price box heading for weighed buffets
+    val per100g: String,               // suffix after a buffet's price on the card
     val priceTable: String,
     val openingHours: String,
     val locationCampus: String,
@@ -204,6 +206,8 @@ val StringsDe = Strings(
     noSidesListed = "Für diesen Tag sind keine Beilagen gelistet.",
     allergens = "ALLERGENE & ZUSATZSTOFFE",
     price = "PREIS",
+    pricePer100g = "PREIS JE 100 G",
+    per100g = "/ 100 g",
     priceTable = "Preise",
     openingHours = "Öffnungszeiten",
     locationCampus = "STANDORT · ZENTRALCAMPUS",
@@ -321,6 +325,8 @@ val StringsEn = Strings(
     noSidesListed = "No sides listed for this day.",
     allergens = "ALLERGENS & ADDITIVES",
     price = "PRICE",
+    pricePer100g = "PRICE PER 100 G",
+    per100g = "/ 100 g",
     priceTable = "Prices",
     openingHours = "Opening hours",
     locationCampus = "LOCATION · CENTRAL CAMPUS",
