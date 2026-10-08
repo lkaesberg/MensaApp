@@ -4,6 +4,7 @@ import com.lkaesberg.mensaapp.data.Course
 import com.lkaesberg.mensaapp.data.Locale
 import com.lkaesberg.mensaapp.data.MenuSection
 import com.lkaesberg.mensaapp.data.MenuStructure
+import com.lkaesberg.mensaapp.data.SideKind
 import com.lkaesberg.mensaapp.i18n.sidesFor
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -156,6 +157,88 @@ class MenuStructureTest {
     fun legacyConnectorChipsAreDropped() {
         val meal = md("Asia Point", "Tofu", sides = listOf("auf", "Curryreis", "zusätzlich", "Brötchen")).meals!!
         assertEquals(listOf("Curryreis", "Brötchen"), meal.sidesFor(Locale.De))
+    }
+
+    @Test
+    fun isRealSide_keepsSidesDropsSaucesAndGarnish() {
+        for (side in listOf(
+            "Butterkartoffeln", "Pestokartoffeln", "Senf-Kartoffeln", "Pommes frites", "Spätzle",
+            "Koriander Wildreismischung", "Rosenkohlröschen mit Speck", "Blattsalatmix mit Frenchdressing",
+            "Gurkensalat in Sauerrahm", "Green Fusion Slaw",
+        )) assertTrue(MenuStructure.isRealSide(side), side)
+        for (notSide in listOf(
+            "Remouladensauce", "vegane Remouladensauce", "Mediterrane Gemüsesauce", "Tomatensauce Parmerosa",
+            "Kräuterquark Dip", "Mango-Curryketchup", "Portion Senf", "Zitronenecke", "frische Petersilie",
+            "Frühlingszwiebelröllchen", "Tagesdessert", "Ciabattabrot", "zusätzlich Geflügelwürstchen Wiener Art",
+        )) assertFalse(MenuStructure.isRealSide(notSide), notSide)
+    }
+
+    @Test
+    fun sideKind_sortsStarchVegetablesAndSalads() {
+        for (starch in listOf("Senf-Kartoffeln", "Kräuterpüree", "Basmatireis", "Gemüse-Vollkornreis", "Spätzle", "Spinatnudeln", "Tomaten-Bulgur", "Zartweizen mit buntem Gemüse"))
+            assertEquals(SideKind.Starch, MenuStructure.sideKind(starch), starch)
+        for (veg in listOf("Fingermöhren", "Püree aus jungen Erbsen", "Blattspinat in Rahm", "Kaiserschoten", "Pariser Karotten", "Leipziger Allerlei"))
+            assertEquals(SideKind.Vegetable, MenuStructure.sideKind(veg), veg)
+        for (salad in listOf("Gurkensalat in Sauerrahm", "Kartoffelsalat mit Mayonnaise", "Green Fusion Slaw", "Daily Crunch Mix"))
+            assertEquals(SideKind.Salad, MenuStructure.sideKind(salad), salad)
+    }
+
+    private val label: (SideKind) -> String = { it.name }
+
+    @Test
+    fun sideBoard_withoutCounters_groupsMenuSidesByKind() {
+        // Zentralmensa: no side counters, sides only inside the menus.
+        val day = listOf(
+            md("Menü", "Kibbelinge", 80, sides = listOf("Remouladensauce", "Butterkartoffeln", "Fingermöhren", "Tomatensalat")),
+            md("Vegan", "Falafel", 10, sides = listOf("Chilisauce hell", "Bulgur mit Zucchini", "Fingermöhren")),
+        ).sortedWith(MenuStructure.feedOrder(emptySet()))
+        val board = MenuStructure.sideBoard(day, label)
+        assertEquals(listOf(SideKind.Starch, SideKind.Vegetable, SideKind.Salad), board.map { it.kind })
+        assertEquals(listOf("Bulgur mit Zucchini", "Butterkartoffeln"), board[0].items)
+        assertEquals(listOf("Fingermöhren"), board[1].items)
+        assertEquals(listOf("Tomatensalat"), board[2].items)
+        assertTrue(board.all { it.counter == null })
+    }
+
+    @Test
+    fun sideBoard_mergesMenuSidesIntoMatchingCounters() {
+        // Mensa am Turm: side counters plus a main whose base is a real side.
+        val day = listOf(
+            md("Asia Point", "Tofu", 200, sides = listOf("Curryreis mit Ananasstücken", "Frühlingszwiebelröllchen", "Kaiserschoten")),
+            md("Gemüsebeilage", "Frisches Möhrengemüse", 180, course = "side", sides = emptyList(), alternatives = listOf("Blumenkohlgemüse")),
+            md("Stärkebeilage", "Senf-Kartoffeln", 200, course = "side", sides = emptyList(), alternatives = listOf("Pommes frites")),
+            md("Salat", "Rote Betekugelsalat", 190, course = "salad", sides = emptyList(), alternatives = emptyList()),
+        ).sortedWith(MenuStructure.feedOrder(emptySet()))
+        val board = MenuStructure.sideBoard(day, label)
+        assertEquals(listOf("Stärkebeilage", "Gemüsebeilage", "Salat"), board.map { it.label })
+        assertEquals(listOf("Senf-Kartoffeln", "Pommes frites", "Curryreis mit Ananasstücken"), board[0].items)
+        assertEquals(listOf("Frisches Möhrengemüse", "Blumenkohlgemüse", "Kaiserschoten"), board[1].items)
+        assertTrue(board.all { it.counter != null })
+    }
+
+    @Test
+    fun dessertBoard_andPickableItems() {
+        val day = listOf(
+            md("Dessert", "Hausgemachte Rote Grütze", 210, course = "dessert",
+                sides = listOf("veganer Vanillesauce"), alternatives = listOf("Hausgemachter Fruchtquark Ananas")),
+            md("Menü", "Kibbelinge", 80, sides = listOf("Remouladensauce", "Butterkartoffeln")),
+        )
+        assertEquals(
+            listOf("Hausgemachte Rote Grütze mit veganer Vanillesauce", "Hausgemachter Fruchtquark Ananas"),
+            MenuStructure.dessertBoard(day).single().items,
+        )
+        // Normalised like favourite keys; sauces never count.
+        assertEquals(
+            setOf("butterkartoffeln", "hausgemachte rote grütze mit veganer vanillesauce", "hausgemachter fruchtquark ananas"),
+            MenuStructure.pickableItems(day),
+        )
+    }
+
+    @Test
+    fun sideImagePath_matchesBackendSlug() {
+        // smooth-endpoint: name.trim().replace(/\W+/g, '_').toLowerCase() — ASCII-only \W.
+        assertEquals("sides/senf_kartoffeln.jpg", MenuStructure.sideImagePath("Senf-Kartoffeln"))
+        assertEquals("sides/kr_uterp_ree.jpg", MenuStructure.sideImagePath("Kräuterpüree"))
     }
 
     @Test

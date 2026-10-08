@@ -1,7 +1,7 @@
 // deno test supabase/functions/_shared/menu_test.ts
 // Fixtures are verbatim <essen2>/<essen2_eng> values from the live API.
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { classifyCourse, isNonDishEntry, parseAccompaniments } from './menu.ts';
+import { classifyCourse, isNonDishEntry, isRealSide, parseAccompaniments, photoItemsOf, sideImageFile } from './menu.ts';
 
 Deno.test('classifyCourse maps the upstream counters', () => {
   assertEquals(classifyCourse('Stärkebeilage'), 'side');
@@ -154,4 +154,35 @@ Deno.test('dessert without "oder" is just toppings', () => {
 Deno.test('empty input', () => {
   assertEquals(parseAccompaniments('', 'main'), { sides: [], alternatives: [] });
   assertEquals(parseAccompaniments(null, 'side'), { sides: [], alternatives: [] });
+});
+
+Deno.test('isRealSide keeps sides, drops sauces, dips, garnish, bread and extras', () => {
+  for (const side of [
+    'Butterkartoffeln', 'Pestokartoffeln', 'Senf-Kartoffeln', 'Pommes frites', 'Spätzle', 'Naturreis',
+    'Koriander Wildreismischung', 'Fingermöhren', 'Rosenkohlröschen mit Speck', 'Kartoffelsalat mit Mayonnaise',
+    'Blattsalatmix mit Frenchdressing', 'Gurkensalat in Sauerrahm', 'Green Fusion Slaw',
+  ]) assertEquals(isRealSide(side), true, side);
+  for (const notSide of [
+    'Remouladensauce', 'vegane Remouladensauce', 'Mediterrane Gemüsesauce', 'Tomatensauce Parmerosa',
+    'Kräuterquark Dip', 'Hausgemachter Kräuterquark', 'Mango-Curryketchup', 'Pfeffer Hollandaise', 'Portion Senf',
+    'Zitronenecke', 'frische Petersilie', 'Frühlingszwiebelröllchen', 'Tagesdessert', 'Ciabattabrot',
+    'zusätzlich Geflügelwürstchen Wiener Art', 'Ziegenkäse-Honig-Sauce oder fruchtige Tomaten-Basilikum-Sugo',
+  ]) assertEquals(isRealSide(notSide), false, notSide);
+});
+
+Deno.test('photoItemsOf: counter options, real sides of a main, dessert options', () => {
+  assertEquals(
+    photoItemsOf({ course: 'side', clean_title: 'Senf-Kartoffeln', title: 'Senf-Kartoffeln (j)', sides: [], alternatives: ['Pommes frites'] }),
+    [{ name: 'Senf-Kartoffeln', course: 'side' }, { name: 'Pommes frites', course: 'side' }],
+  );
+  assertEquals(
+    photoItemsOf({ course: 'main', clean_title: 'Kibbelinge', title: 'Kibbelinge', sides: ['Remouladensauce', 'Zitronenecke', 'Butterkartoffeln', 'Tomatensalat'], alternatives: [] }),
+    [{ name: 'Butterkartoffeln', course: 'side' }, { name: 'Tomatensalat', course: 'salad' }],
+  );
+  // Named like the app's counterOptions(…, De): "<title> mit <topping>", then the others.
+  assertEquals(
+    photoItemsOf({ course: 'dessert', clean_title: 'Rote Grütze', title: 'x', sides: ['veganer Vanillesauce'], alternatives: ['Fruchtquark Ananas'] }),
+    [{ name: 'Rote Grütze mit veganer Vanillesauce', course: 'dessert' }, { name: 'Fruchtquark Ananas', course: 'dessert' }],
+  );
+  assertEquals(sideImageFile('Senf-Kartoffeln'), 'senf_kartoffeln.jpg');
 });

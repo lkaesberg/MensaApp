@@ -2,6 +2,7 @@ package com.lkaesberg.mensaapp.i18n
 
 import androidx.compose.runtime.compositionLocalOf
 import com.lkaesberg.mensaapp.data.Locale
+import com.lkaesberg.mensaapp.data.SideKind
 
 /**
  * Static string table for the app. One field per user-facing string.
@@ -58,6 +59,14 @@ data class Strings(
     val counterOptions: String,        // detail: options at a side/dessert counter
     val alsoAtCounter: String,         // detail: other dishes at a buffet counter
     val moreAtCounter: (Int) -> String,
+    val sidesTitle: String,            // sides screen title
+    val dessertsTitle: String,         // desserts screen title
+    val noDessertsListed: String,
+    val favoriteSidesAndDesserts: String,  // favourites screen section
+    val sideStarch: String,            // side groups by kind
+    val sideVegetable: String,
+    val sideSalad: String,
+    val noSidesListed: String,
     val allergens: String,
     val price: String,
     val priceTable: String,
@@ -185,6 +194,14 @@ val StringsDe = Strings(
     counterOptions = "ZUR AUSWAHL",
     alsoAtCounter = "AUCH AN DIESER THEKE",
     moreAtCounter = { n -> "+$n weitere an dieser Theke" },
+    sidesTitle = "Beilagen",
+    dessertsTitle = "Desserts",
+    noDessertsListed = "Für diesen Tag sind keine Desserts gelistet.",
+    favoriteSidesAndDesserts = "BEILAGEN & DESSERTS",
+    sideStarch = "Stärkebeilage",
+    sideVegetable = "Gemüsebeilage",
+    sideSalad = "Salat",
+    noSidesListed = "Für diesen Tag sind keine Beilagen gelistet.",
     allergens = "ALLERGENE & ZUSATZSTOFFE",
     price = "PREIS",
     priceTable = "Preise",
@@ -294,6 +311,14 @@ val StringsEn = Strings(
     counterOptions = "CHOOSE FROM",
     alsoAtCounter = "ALSO AT THIS COUNTER",
     moreAtCounter = { n -> "+$n more at this counter" },
+    sidesTitle = "Sides",
+    dessertsTitle = "Desserts",
+    noDessertsListed = "No desserts listed for this day.",
+    favoriteSidesAndDesserts = "SIDES & DESSERTS",
+    sideStarch = "Starch sides",
+    sideVegetable = "Vegetables",
+    sideSalad = "Salad",
+    noSidesListed = "No sides listed for this day.",
     allergens = "ALLERGENS & ADDITIVES",
     price = "PRICE",
     priceTable = "Prices",
@@ -360,6 +385,13 @@ val StringsEn = Strings(
     monthsAgo = { m -> if (m == 1) "1 month ago" else "$m months ago" },
     recently = "recently",
 )
+
+fun Strings.sideKindLabel(kind: SideKind): String = when (kind) {
+    SideKind.Starch -> sideStarch
+    SideKind.Vegetable -> sideVegetable
+    SideKind.Salad -> sideSalad
+    SideKind.Dessert -> dessertsTitle
+}
 
 fun stringsFor(locale: Locale): Strings = if (locale == Locale.De) StringsDe else StringsEn
 

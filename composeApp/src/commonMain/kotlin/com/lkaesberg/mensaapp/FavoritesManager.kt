@@ -6,16 +6,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class FavoritesManager(private val settings: Settings) {
-    private val _favorites = MutableStateFlow<Set<String>>(loadFavorites())
+    private val _favorites = MutableStateFlow<Set<String>>(load(FAVORITES_KEY))
     val favorites: StateFlow<Set<String>> = _favorites.asStateFlow()
 
-    private fun loadFavorites(): Set<String> {
-        val favoritesString = settings.getStringOrNull(FAVORITES_KEY) ?: ""
-        return if (favoritesString.isNotEmpty()) {
-            favoritesString.split(",").toSet()
-        } else {
-            emptySet()
-        }
+    /**
+     * Favourite sides and desserts ("Pommes frites", "Hausgemachte Rote
+     * Grütze mit veganer Vanillesauce"), kept apart from favourite dishes so
+     * the dish list, its "next on the plan" lookup and the notification
+     * worker stay about dishes.
+     */
+    private val _sideFavorites = MutableStateFlow<Set<String>>(load(SIDE_FAVORITES_KEY))
+    val sideFavorites: StateFlow<Set<String>> = _sideFavorites.asStateFlow()
+
+    private fun load(key: String): Set<String> {
+        val stored = settings.getStringOrNull(key) ?: ""
+        return if (stored.isNotEmpty()) stored.split(",").toSet() else emptySet()
     }
 
     private fun saveFavorites(favorites: Set<String>) {
@@ -41,8 +46,20 @@ class FavoritesManager(private val settings: Settings) {
 
     fun isFavorite(title: String): Boolean = _favorites.value.containsFavorite(title)
 
+    /** Same normalised matching as [toggleFavorite]. Commas are stripped: they're the storage separator. */
+    fun toggleSideFavorite(name: String) {
+        val clean = name.replace(",", " ").trim()
+        val n = normalizeFavoriteKey(clean)
+        val current = _sideFavorites.value.toMutableSet()
+        val removed = current.removeAll { normalizeFavoriteKey(it) == n }
+        if (!removed) current.add(clean)
+        _sideFavorites.value = current
+        settings.putString(SIDE_FAVORITES_KEY, current.joinToString(","))
+    }
+
     companion object {
         private const val FAVORITES_KEY = "favorite_meals"
+        private const val SIDE_FAVORITES_KEY = "favorite_sides"
     }
 }
 
@@ -56,3 +73,6 @@ internal fun Set<String>.containsFavorite(title: String): Boolean {
     val n = normalizeFavoriteKey(title)
     return any { normalizeFavoriteKey(it) == n }
 }
+
+/** [containsFavorite] for side names, which are stored with commas stripped. */
+internal fun Set<String>.containsSide(name: String): Boolean = containsFavorite(name.replace(",", " "))

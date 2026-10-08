@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -30,6 +31,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lkaesberg.mensaapp.MealDate
+import com.lkaesberg.mensaapp.containsSide
+import com.lkaesberg.mensaapp.data.Locale
 import com.lkaesberg.mensaapp.data.EnrichedMeal
 import com.lkaesberg.mensaapp.data.MealEnrichment
 import com.lkaesberg.mensaapp.data.MenuStructure
@@ -68,6 +71,8 @@ fun MealCard(
      * still change upstream, so dimming them now is misleading.
      */
     forceActive: Boolean = false,
+    /** Favourite side dishes; a dish served with one gets a star chip naming it. */
+    favoriteSides: Set<String> = emptySet(),
 ) {
     val palette = MensaTheme.palette
     val isDeactivated = !forceActive && (mealDate.deactivatedAt != null || forceDeactivated)
@@ -194,6 +199,37 @@ fun MealCard(
                         fontSize = 13.sp,
                         style = MonoNumericStyle,
                         fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            // Matched on the German names, which side favourites are keyed by.
+            val favoriteSidesHere = remember(mealDate.meals, favoriteSides) {
+                mealDate.meals?.sidesFor(Locale.De).orEmpty()
+                    .filter { MenuStructure.isRealSide(it) && favoriteSides.containsSide(it) }
+            }
+            if (favoriteSidesHere.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(palette.amberLight)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Star,
+                        contentDescription = null,
+                        tint = palette.amberDark,
+                        modifier = Modifier.size(11.dp),
+                    )
+                    Text(
+                        text = favoriteSidesHere.joinToString(", "),
+                        color = palette.amberDark,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

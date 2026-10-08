@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lkaesberg.mensaapp.Meal
 import com.lkaesberg.mensaapp.SupabaseConfig
+import com.lkaesberg.mensaapp.data.MenuStructure
 import com.lkaesberg.mensaapp.ui.MensaTheme
 import io.kamel.image.KamelImage
 import io.kamel.image.asyncPainterResource
@@ -66,6 +67,36 @@ fun PlateFill(
     val palette = MensaTheme.palette
     val url = remember(meal?.id, meal?.imagePath, meal?.imagePathGeneric) {
         plateUrl(meal)
+    }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(radius))
+            .background(palette.moss)
+    ) {
+        KamelImage(
+            resource = asyncPainterResource(data = url),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            onLoading = { PlatePlaceholder(palette.moss, palette.forest, modifier = Modifier.fillMaxSize()) },
+            onFailure = { PlatePlaceholder(palette.moss, palette.forest, modifier = Modifier.fillMaxSize()) },
+        )
+    }
+}
+
+/**
+ * Photo of a single side dish, by name (smooth-endpoint writes one per side
+ * to mensa-food/sides/). Same placeholder as [Plate] until it exists.
+ */
+@Composable
+fun SidePhoto(
+    name: String,
+    modifier: Modifier = Modifier,
+    radius: Dp = 12.dp,
+) {
+    val palette = MensaTheme.palette
+    val url = remember(name) {
+        "${SupabaseConfig.SUPABASE_URL}/storage/v1/object/public/mensa-food/" + MenuStructure.sideImagePath(name)
     }
     Box(
         modifier = modifier

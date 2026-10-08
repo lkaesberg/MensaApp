@@ -50,6 +50,8 @@ import androidx.compose.ui.unit.sp
 import com.lkaesberg.mensaapp.MealDate
 import com.lkaesberg.mensaapp.MealsAppState
 import com.lkaesberg.mensaapp.containsFavorite
+import com.lkaesberg.mensaapp.containsSide
+import com.lkaesberg.mensaapp.data.Locale
 import com.lkaesberg.mensaapp.data.MealEnrichment
 import com.lkaesberg.mensaapp.data.MenuStructure
 import com.lkaesberg.mensaapp.data.PriceResolver
@@ -86,6 +88,7 @@ fun MealDetailScreen(
     val palette = MensaTheme.palette
     val mealsByDate by state.mealsByDate.collectAsState()
     val favoriteIds by state.favoritesManager.favorites.collectAsState()
+    val sideFavorites by state.favoritesManager.sideFavorites.collectAsState()
     val history by state.history.collectAsState()
     val canteenInfo = state.selectedInfo()
     val userRole by state.userRole.collectAsState()
@@ -347,7 +350,19 @@ fun MealDetailScreen(
             if (MenuStructure.isCounter(target)) {
                 BulletList(strings.counterOptions, MenuStructure.counterOptions(target, locale))
             } else {
-                BulletList(strings.sides, target.meals?.sidesFor(locale).orEmpty().ifEmpty { enriched.sides })
+                // Real sides get a star; favourites are keyed by the German name,
+                // lined up by position when the English list has the same length.
+                val shown = target.meals?.sidesFor(locale).orEmpty().ifEmpty { enriched.sides }
+                val german = target.meals?.sidesFor(Locale.De).orEmpty().ifEmpty { enriched.sides }
+                BulletList(
+                    label = strings.sides,
+                    entries = shown,
+                    favoriteKeys = shown.mapIndexed { i, side ->
+                        (if (german.size == shown.size) german[i] else side).takeIf { MenuStructure.isRealSide(it) }
+                    },
+                    favoriteSides = sideFavorites,
+                    onToggleFavorite = { state.favoritesManager.toggleSideFavorite(it) },
+                )
                 BulletList(strings.alsoAtCounter, target.meals?.alternativesFor(locale).orEmpty())
             }
         }
@@ -440,7 +455,14 @@ fun MealDetailScreen(
 }
 
 @Composable
-private fun BulletList(label: String, entries: List<String>) {
+private fun BulletList(
+    label: String,
+    entries: List<String>,
+    /** Per entry: the side's favourite key, or null for no star (sauces, garnish). */
+    favoriteKeys: List<String?> = emptyList(),
+    favoriteSides: Set<String> = emptySet(),
+    onToggleFavorite: (String) -> Unit = {},
+) {
     if (entries.isEmpty()) return
     val palette = MensaTheme.palette
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 22.dp)) {
@@ -459,7 +481,22 @@ private fun BulletList(label: String, entries: List<String>) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(palette.forest))
-                Text(entry, color = palette.ink, fontSize = 14.sp)
+                Text(entry, color = palette.ink, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                val key = favoriteKeys.getOrNull(i)
+                if (key != null) {
+                    val isFavorite = favoriteSides.containsSide(key)
+                    Box(
+                        modifier = Modifier.size(28.dp).clip(CircleShape).clickable { onToggleFavorite(key) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                            contentDescription = if (isFavorite) LocalStrings.current.unfavorite else LocalStrings.current.favorite,
+                            tint = if (isFavorite) palette.amber else palette.sub,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
             }
             if (i < entries.size - 1) {
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(palette.hair))

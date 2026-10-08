@@ -75,6 +75,7 @@ import com.lkaesberg.mensaapp.ui.screens.MealDetailScreen
 import com.lkaesberg.mensaapp.ui.screens.OnboardingScreen
 import com.lkaesberg.mensaapp.ui.screens.SearchScreen
 import com.lkaesberg.mensaapp.ui.screens.SettingsScreen
+import com.lkaesberg.mensaapp.ui.screens.SidesScreen
 import com.lkaesberg.mensaapp.ui.screens.UpcomingFavoritesScreen
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
@@ -153,6 +154,31 @@ fun App(
                     onOpenNotifications = { navController.navigateSafely(Route.UpcomingFavorites) },
                     onOpenMenu = { menuOpen = true },
                     onOpenMealDetail = { md -> navController.navigateSafely(Route.mealDetail(md.id)) },
+                    onOpenSides = { date -> navController.navigateSafely(Route.sides(date)) },
+                    onOpenDesserts = { date -> navController.navigateSafely(Route.desserts(date)) },
+                )
+            }
+            composable(
+                route = Route.Desserts,
+                arguments = listOf(navArgument("date") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val date = backStackEntry.arguments?.read { getString("date") }.orEmpty()
+                SidesScreen(
+                    state = state,
+                    date = date,
+                    onBack = { navController.popBackStackSafely() },
+                    desserts = true,
+                )
+            }
+            composable(
+                route = Route.Sides,
+                arguments = listOf(navArgument("date") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val date = backStackEntry.arguments?.read { getString("date") }.orEmpty()
+                SidesScreen(
+                    state = state,
+                    date = date,
+                    onBack = { navController.popBackStackSafely() },
                 )
             }
             composable(Route.CanteenPicker) {

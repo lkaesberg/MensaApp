@@ -237,3 +237,70 @@ function dedupe(xs: string[]): string[] {
   }
   return out;
 }
+
+// ───── Real side dishes ────────────────────────────────────────────────────
+//
+// A main's side list mixes the actual sides with sauces, dips and garnish
+// ("Remouladensauce, Zitronenecke, Butterkartoffeln, Fingermöhren"). The
+// sides overview only wants what you'd pick as a side on its own. German
+// compounds carry their meaning in the last part — "Gemüsesauce" is a sauce,
+// "Pestokartoffeln" are potatoes — so the check looks at word endings, and
+// only in the part before "mit"/"in", so "Blattsalatmix mit Frenchdressing"
+// stays a salad. Tuned against three weeks of all four canteens (151 kept,
+// 108 dropped). German names only: the English ones are too inconsistent.
+// Mirrored in MenuStructure.kt — keep the two in step.
+const CONDIMENT_END_RE =
+  /(sauce|soße|sosse|sugo|ketchup|dip|dressing|vinaigrette|remoulade|mayonnaise|mayo|aioli|pesto|salsa|chutney|relish|jus|schmelze|hollandaise|topping|senf|quark|tzatziki|ragout|glasur|preiselbeeren)$/;
+const GARNISH_RE =
+  /^(frisch[a-zäöüß]*\s+)?(petersilie|schnittlauch|koriander|kresse|rucola|minze|zitronenecke|zitronen?|limetten?[a-zäöüß]*|frühlingszwiebel[a-zäöüß]*|röstzwiebeln|tomaten|gurken|in)$/;
+const NOT_A_SIDE_RE = /sprossen|parmesan|umlegt|dessert|brötchen|brot|baguette|ciabatta|naan/;
+const SIDE_HEAD_SPLIT_RE = /\s+(?:mit|in)\s+/;
+
+export function isRealSide(name: string): boolean {
+  const t = name.trim().toLowerCase();
+  if (!t || /^zusätzlich(\s|$)/.test(t)) return false;
+  const head = t.split(SIDE_HEAD_SPLIT_RE)[0].trim();
+  if (GARNISH_RE.test(head) || NOT_A_SIDE_RE.test(head)) return false;
+  return !head.split(/\s+/).some((w) => CONDIMENT_END_RE.test(w));
+}
+
+export interface PhotoItem {
+  name: string;
+  course: 'side' | 'salad' | 'dessert';
+}
+
+/**
+ * What a meal row contributes to the app's sides and desserts screens, each
+ * item photographed on its own: every option of a side/salad/dessert counter
+ * and the real sides of a main. Counter options are named exactly like
+ * MenuStructure.counterOptions(…, De) — "<title> mit <sides>", then the
+ * alternatives — because the photo path is derived from the name.
+ */
+export function photoItemsOf(meal: {
+  course: string | null;
+  clean_title: string | null;
+  title: string;
+  sides: string[] | null;
+  alternatives: string[] | null;
+}): PhotoItem[] {
+  const title = (meal.clean_title?.trim() || meal.title.replace(/\s*\([^)]*\)/g, '')).trim();
+  const sides = meal.sides ?? [];
+  switch (meal.course) {
+    case 'side':
+    case 'salad':
+    case 'dessert': {
+      const head = sides.length ? `${title} mit ${sides.join(', ')}` : title;
+      const course = meal.course === 'dessert' ? 'dessert' : null;
+      return [...new Set([head, ...(meal.alternatives ?? [])])]
+        .filter(Boolean)
+        .map((name) => ({ name, course: course ?? (/salat|slaw|salad/i.test(name) ? 'salad' : 'side') }));
+    }
+    default:
+      return sides.filter(isRealSide).map((name) => ({ name, course: /salat|slaw|salad/i.test(name) ? 'salad' : 'side' }));
+  }
+}
+
+/** Storage file name for a side's photo — same ASCII-only slug as the meal photos. */
+export function sideImageFile(name: string): string {
+  return `${name.trim().replace(/\W+/g, '_').toLowerCase()}.jpg`;
+}

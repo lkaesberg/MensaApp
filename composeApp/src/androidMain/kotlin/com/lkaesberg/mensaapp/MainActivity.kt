@@ -10,6 +10,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.lkaesberg.mensaapp.notifications.AndroidNotificationContext
+import com.lkaesberg.mensaapp.notifications.FavoriteAlarms
 
 class MainActivity : ComponentActivity() {
 
@@ -26,6 +27,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         AndroidNotificationContext.attach(applicationContext)
+        // Re-arm the daily reminder (and retire the old periodic job after an update).
+        FavoriteAlarms.rearmFromSettings(applicationContext)
 
         setContent {
             App(

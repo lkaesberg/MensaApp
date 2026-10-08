@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Icecream
 import androidx.compose.material.icons.filled.RiceBowl
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,8 +35,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lkaesberg.mensaapp.MealDate
+import com.lkaesberg.mensaapp.containsSide
 import com.lkaesberg.mensaapp.data.Course
+import com.lkaesberg.mensaapp.data.Locale
 import com.lkaesberg.mensaapp.data.MenuStructure
+import com.lkaesberg.mensaapp.data.SideGroup
+import com.lkaesberg.mensaapp.data.SideKind
 import com.lkaesberg.mensaapp.i18n.LocalAppLocale
 import com.lkaesberg.mensaapp.ui.MensaTheme
 import com.lkaesberg.mensaapp.ui.MonoNumericStyle
@@ -46,7 +51,7 @@ import com.lkaesberg.mensaapp.ui.MonoNumericStyle
  * their own — at Mensa am Turm the "Stärkebeilage" is Senf-Kartoffeln,
  * Pommes frites, Tomatennudeln and Kräuterpüree, one of which you pick — so
  * every option gets the same row and there's no photo of whichever one
- * upstream happened to list first.
+ * upstream happened to list first. Favourite sides carry a star.
  */
 @Composable
 fun CounterCard(
@@ -54,22 +59,85 @@ fun CounterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     priceText: String? = null,
+    favoriteSides: Set<String> = emptySet(),
     /** Same contract as [MealCard]. */
     forceDeactivated: Boolean = false,
     forceActive: Boolean = false,
 ) {
-    val palette = MensaTheme.palette
     val locale = LocalAppLocale.current
     val isDeactivated = !forceActive && (mealDate.deactivatedAt != null || forceDeactivated)
     val options = remember(mealDate.id, mealDate.meals, locale) { MenuStructure.counterOptions(mealDate, locale) }
-    // Same shell as MealCard; the icon tile sits where a dish card has its photo.
+    // Favourites are keyed by the German name; line the English options up by
+    // position when both lists match, otherwise compare what's shown.
+    val favorites = remember(mealDate.id, mealDate.meals, locale, favoriteSides) {
+        val german = if (locale == Locale.De) options else MenuStructure.counterOptions(mealDate, Locale.De)
+        options.mapIndexed { i, shown ->
+            favoriteSides.containsSide(if (german.size == options.size) german[i] else shown)
+        }
+    }
+    OptionsCard(
+        label = MenuStructure.displayCategory(mealDate.category),
+        icon = counterIcon(MenuStructure.courseOf(mealDate), mealDate.category),
+        options = options,
+        favorites = favorites,
+        priceText = priceText,
+        deactivated = isDeactivated,
+        onClick = onClick,
+        modifier = modifier,
+    )
+}
+
+/**
+ * A group of the day's sides ([MenuStructure.sideBoard]): a side counter with
+ * the matching sides of the mains merged in, or the mains' sides of one kind
+ * where there's no counter. Names are German — favourites and photos use them.
+ */
+@Composable
+fun SideGroupCard(
+    group: SideGroup,
+    favoriteSides: Set<String>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    priceText: String? = null,
+    deactivated: Boolean = false,
+) {
+    OptionsCard(
+        label = group.label,
+        icon = when (group.kind) {
+            SideKind.Starch -> Icons.Filled.RiceBowl
+            SideKind.Vegetable -> Icons.Filled.Eco
+            SideKind.Salad -> Icons.Filled.Grass
+            SideKind.Dessert -> Icons.Filled.Icecream
+        },
+        options = group.items,
+        favorites = group.items.map { favoriteSides.containsSide(it) },
+        priceText = priceText,
+        deactivated = deactivated,
+        onClick = onClick,
+        modifier = modifier,
+    )
+}
+
+// Same shell as MealCard; the icon tile sits where a dish card has its photo.
+@Composable
+private fun OptionsCard(
+    label: String,
+    icon: ImageVector,
+    options: List<String>,
+    favorites: List<Boolean>,
+    priceText: String?,
+    deactivated: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = MensaTheme.palette
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(palette.surface)
             .border(1.dp, palette.hair, RoundedCornerShape(16.dp))
-            .alpha(if (isDeactivated) 0.5f else 1f)
+            .alpha(if (deactivated) 0.5f else 1f)
             .clickable { onClick() }
             .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -81,12 +149,7 @@ fun CounterCard(
                 .background(palette.moss),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = counterIcon(MenuStructure.courseOf(mealDate), mealDate.category),
-                contentDescription = null,
-                tint = palette.forest,
-                modifier = Modifier.size(24.dp),
-            )
+            Icon(icon, contentDescription = null, tint = palette.forest, modifier = Modifier.size(24.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
             Row(
@@ -94,10 +157,7 @@ fun CounterCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Eyebrow(
-                    text = MenuStructure.displayCategory(mealDate.category),
-                    modifier = Modifier.weight(1f, fill = false),
-                )
+                Eyebrow(text = label, modifier = Modifier.weight(1f, fill = false))
                 if (priceText != null) {
                     Text(
                         text = priceText,
@@ -110,16 +170,17 @@ fun CounterCard(
             }
             Spacer(Modifier.height(4.dp))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                options.forEach { option ->
+                options.forEachIndexed { i, option ->
                     Row(verticalAlignment = Alignment.Top) {
-                        Box(
-                            modifier = Modifier
-                                .padding(top = 7.dp)
-                                .size(4.dp)
-                                .clip(CircleShape)
-                                .background(palette.sub),
-                        )
-                        Spacer(Modifier.width(8.dp))
+                        // Fixed slot so dots and stars keep the text aligned.
+                        Box(modifier = Modifier.padding(top = 4.dp).size(10.dp), contentAlignment = Alignment.Center) {
+                            if (favorites.getOrElse(i) { false }) {
+                                Icon(Icons.Filled.Star, contentDescription = null, tint = palette.amber, modifier = Modifier.size(10.dp))
+                            } else {
+                                Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(palette.sub))
+                            }
+                        }
+                        Spacer(Modifier.width(5.dp))
                         Text(
                             text = option,
                             color = palette.ink,

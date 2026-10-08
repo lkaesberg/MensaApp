@@ -51,6 +51,7 @@ import com.lkaesberg.mensaapp.Canteen
 import com.lkaesberg.mensaapp.MealDate
 import com.lkaesberg.mensaapp.MealsAppState
 import com.lkaesberg.mensaapp.containsFavorite
+import com.lkaesberg.mensaapp.normalizeFavoriteKey
 import com.lkaesberg.mensaapp.mealMatchesDietaryFilters
 import com.lkaesberg.mensaapp.separateMealsByPeriod
 import com.lkaesberg.mensaapp.shouldHideAfternoonMealsForCanteenOnDate
@@ -59,6 +60,7 @@ import com.lkaesberg.mensaapp.data.PriceResolver
 import com.lkaesberg.mensaapp.data.MealEnrichment
 import com.lkaesberg.mensaapp.data.MenuSection
 import com.lkaesberg.mensaapp.data.MenuStructure
+import com.lkaesberg.mensaapp.i18n.sideKindLabel
 import com.lkaesberg.mensaapp.ui.MensaTheme
 import com.lkaesberg.mensaapp.ui.components.CounterCard
 import com.lkaesberg.mensaapp.ui.components.DateChip
@@ -66,6 +68,7 @@ import com.lkaesberg.mensaapp.ui.components.EmptyState
 import com.lkaesberg.mensaapp.ui.components.FilterChipsRow
 import com.lkaesberg.mensaapp.ui.components.MealCard
 import com.lkaesberg.mensaapp.ui.components.MenuSectionHeader
+import com.lkaesberg.mensaapp.ui.components.SideGroupCard
 import com.lkaesberg.mensaapp.ui.components.OccupancyChip
 import com.lkaesberg.mensaapp.ui.components.TimeSeparator
 import kotlin.time.Clock
@@ -88,6 +91,10 @@ fun FeedScreen(
     onOpenNotifications: () -> Unit,
     onOpenMenu: () -> Unit,
     onOpenMealDetail: (MealDate) -> Unit,
+    /** Opens the sides overview for an ISO date. */
+    onOpenSides: (String) -> Unit,
+    /** Opens the desserts overview for an ISO date. */
+    onOpenDesserts: (String) -> Unit,
 ) {
     val palette = MensaTheme.palette
     val scope = rememberCoroutineScope()
@@ -95,6 +102,7 @@ fun FeedScreen(
     val selectedCanteen by state.selectedCanteen.collectAsState()
     val mealsByDate by state.mealsByDate.collectAsState()
     val favoriteIds by state.favoritesManager.favorites.collectAsState()
+    val favoriteSides by state.favoritesManager.sideFavorites.collectAsState()
     val userRole by state.userRole.collectAsState()
     val loadFailed by state.loadFailed.collectAsState()
     val refreshing by state.refreshing.collectAsState()
@@ -177,6 +185,7 @@ fun FeedScreen(
             today = today,
             mealsByDate = mealsByDate,
             favoriteIds = favoriteIds,
+            favoriteSides = favoriteSides,
             onSelect = { d ->
                 val idx = allDates.indexOf(d).coerceAtLeast(0)
                 scope.launch { pagerState.animateScrollToPage(idx) }
@@ -314,7 +323,13 @@ fun FeedScreen(
                         }
                         // Already in MenuStructure.feedOrder: mains, staples, sides, desserts.
                         // Desserts need no header: the card itself is labelled "Dessert".
-                        for ((section, sectionMeals) in meals.groupBy { MenuStructure.sectionOf(it, staples) }) {
+                        val bySection = meals.groupBy { MenuStructure.sectionOf(it, staples) }
+                        // Sides by kind, with the mains' sides sorted in (merged into
+                        // the matching counter where there is one).
+                        val sideGroups = MenuStructure.sideBoard(meals) { s.sideKindLabel(it) }
+                        for (section in MenuSection.entries) {
+                            val sectionMeals = if (section == MenuSection.Sides) emptyList() else bySection[section].orEmpty()
+                            if (sectionMeals.isEmpty() && (section != MenuSection.Sides || sideGroups.isEmpty())) continue
                             val header = when (section) {
                                 MenuSection.Staples -> s.sectionStaples
                                 MenuSection.Sides -> s.sectionSides
@@ -330,11 +345,28 @@ fun FeedScreen(
                                     state = state,
                                     md = md,
                                     favoriteIds = favoriteIds,
+                                    favoriteSides = favoriteSides,
                                     userRole = userRole,
                                     showAsClosed = showAsClosed,
                                     forceActive = keepTodayActive,
                                     onOpenMealDetail = onOpenMealDetail,
+                                    onOpenDesserts = onOpenDesserts,
                                 )
+                            }
+                            if (section == MenuSection.Sides) {
+                                items(sideGroups, key = { "$period-side-${it.kind}-${it.counter?.id ?: "menus"}" }) { group ->
+                                    val counter = group.counter
+                                    SideGroupCard(
+                                        group = group,
+                                        favoriteSides = favoriteSides,
+                                        onClick = { onOpenSides(pageDate.toString()) },
+                                        priceText = counter
+                                            ?.let { PriceResolver.forMealDate(it, state.selectedInfo()) }
+                                            ?.textFor(userRole)?.takeIf { it.isNotBlank() },
+                                        deactivated = counter != null && !keepTodayActive &&
+                                            (counter.deactivatedAt != null || showAsClosed),
+                                    )
+                                }
                             }
                         }
                     }
@@ -349,10 +381,12 @@ private fun FeedMealCard(
     state: MealsAppState,
     md: MealDate,
     favoriteIds: Set<String>,
+    favoriteSides: Set<String>,
     userRole: com.lkaesberg.mensaapp.data.UserRole,
     showAsClosed: Boolean,
     forceActive: Boolean = false,
     onOpenMealDetail: (MealDate) -> Unit,
+    onOpenDesserts: (String) -> Unit,
 ) {
     val enriched = remember(md.id) { MealEnrichment.enrich(md) }
     val key = enriched.cleanTitle.ifBlank { md.meals?.title ?: md.mealId }
@@ -360,11 +394,13 @@ private fun FeedMealCard(
     val info = state.selectedInfo()
     val resolved = PriceResolver.forMealDate(md, info)
     val priceText = resolved?.textFor(userRole)?.takeIf { it.isNotBlank() }
+    // Side and salad counters are drawn by the side board; this is the dessert.
     if (MenuStructure.isCounter(md)) {
         CounterCard(
             mealDate = md,
-            onClick = { onOpenMealDetail(md) },
+            onClick = { onOpenDesserts(md.servedOn) },
             priceText = priceText,
+            favoriteSides = favoriteSides,
             forceDeactivated = showAsClosed,
             forceActive = forceActive,
         )
@@ -383,6 +419,7 @@ private fun FeedMealCard(
         enriched = enriched,
         forceDeactivated = showAsClosed,
         forceActive = forceActive,
+        favoriteSides = favoriteSides,
     )
 }
 
@@ -515,8 +552,11 @@ private fun DateStrip(
     today: LocalDate,
     mealsByDate: Map<LocalDate, List<MealDate>>,
     favoriteIds: Set<String>,
+    favoriteSides: Set<String>,
     onSelect: (LocalDate) -> Unit,
 ) {
+    // Favourite sides and desserts mark a day too.
+    val favoriteSideKeys = remember(favoriteSides) { favoriteSides.mapTo(HashSet()) { normalizeFavoriteKey(it) } }
     val labels = com.lkaesberg.mensaapp.i18n.LocalStrings.current.weekdaysShort
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -524,10 +564,12 @@ private fun DateStrip(
     ) {
         dates.forEach { d ->
             val label = labels[(d.dayOfWeek.isoDayNumber - 1).coerceAtLeast(0).coerceAtMost(6)]
-            val hasFav = mealsByDate[d].orEmpty().any { md ->
+            val meals = mealsByDate[d].orEmpty()
+            val pickable = remember(meals) { MenuStructure.pickableItems(meals) }
+            val hasFav = meals.any { md ->
                 val key = MealEnrichment.enrich(md).cleanTitle.ifBlank { md.meals?.title ?: "" }
                 favoriteIds.containsFavorite(key) || favoriteIds.containsFavorite(md.meals?.title ?: "")
-            }
+            } || pickable.any { it in favoriteSideKeys }
             DateChip(
                 label = label,
                 day = d.dayOfMonth,

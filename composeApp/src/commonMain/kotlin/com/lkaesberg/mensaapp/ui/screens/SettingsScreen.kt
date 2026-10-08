@@ -173,6 +173,17 @@ fun SettingsScreen(
                     }
                 },
             )
+            // The reminders can't be posted while the system blocks them; say so
+            // instead of leaving the switch on and staying silent.
+            if (notifyFavorites && !state.notificationScheduler.isPermitted()) {
+                Text(
+                    text = "Benachrichtigungen sind in den Systemeinstellungen für die App ausgeschaltet – Erinnerungen können nicht angezeigt werden.",
+                    color = palette.closed,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    modifier = Modifier.background(palette.surface).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                )
+            }
             DividerLine()
             Column(modifier = Modifier.background(palette.surface).padding(16.dp)) {
                 Text("Voraus-Reichweite", color = palette.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)

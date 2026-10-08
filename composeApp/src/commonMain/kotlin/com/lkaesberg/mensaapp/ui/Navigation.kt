@@ -42,7 +42,11 @@ object Route {
     const val Favorites = "favorites"
     const val UpcomingFavorites = "favorites/upcoming"
     const val Settings = "settings"
+    const val Sides = "sides/{date}"
+    const val Desserts = "desserts/{date}"
 
     fun canteenDetail(slug: String) = "canteen/$slug"
     fun mealDetail(dateId: String) = "meal/$dateId"
+    fun sides(date: String) = "sides/$date"
+    fun desserts(date: String) = "desserts/$date"
 }

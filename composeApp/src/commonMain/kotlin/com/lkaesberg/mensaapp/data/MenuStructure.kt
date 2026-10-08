@@ -14,6 +14,16 @@ enum class Course {
     }
 }
 
+/** What a side is, for grouping: Stärkebeilage, Gemüsebeilage, Salat — and the dessert counters. */
+enum class SideKind { Starch, Vegetable, Salad, Dessert }
+
+/**
+ * One block of the day's sides: a side/salad counter with its options plus
+ * the matching sides of the mains (Mensa am Turm), or — without a counter of
+ * that kind ([counter] null) — just the mains' sides of that kind.
+ */
+data class SideGroup(val label: String, val kind: SideKind, val counter: MealDate?, val items: List<String>)
+
 /**
  * Feed sections, in display order. Soups (Eintopf) are a full meal, so they
  * sit with the mains; [Staples] are mains on the plan nearly every day
@@ -168,4 +178,105 @@ object MenuStructure {
     private val connectorWords = setOf("mit", "with", "auf", "on", "und", "and", "oder", "or", "zusätzlich", "additional")
 
     fun isConnectorOnly(side: String): Boolean = side.trim().lowercase() in connectorWords
+
+    // ─── Real side dishes ───
+    // Mirror of isRealSide() in supabase/functions/_shared/menu.ts (see the
+    // reasoning there) — keep the two in step. German names only.
+    private val condimentEnd = Regex(
+        """(sauce|soße|sosse|sugo|ketchup|dip|dressing|vinaigrette|remoulade|mayonnaise|mayo|aioli|pesto|salsa|chutney|relish|jus|schmelze|hollandaise|topping|senf|quark|tzatziki|ragout|glasur|preiselbeeren)$""",
+    )
+    private val garnish = Regex(
+        """^(frisch[a-zäöüß]*\s+)?(petersilie|schnittlauch|koriander|kresse|rucola|minze|zitronenecke|zitronen?|limetten?[a-zäöüß]*|frühlingszwiebel[a-zäöüß]*|röstzwiebeln|tomaten|gurken|in)$""",
+    )
+    private val notASide = Regex("""sprossen|parmesan|umlegt|dessert|brötchen|brot|baguette|ciabatta|naan""")
+    private val sideHeadSplit = Regex("""\s+(mit|in)\s+""")
+    private val extraPrefix = Regex("""^zusätzlich(\s|$)""")
+
+    /** A side you'd pick on its own — not a sauce, dip, garnish, bread or optional extra. */
+    fun isRealSide(name: String): Boolean {
+        val t = name.trim().lowercase()
+        if (t.isEmpty() || extraPrefix.containsMatchIn(t)) return false
+        val head = t.split(sideHeadSplit, limit = 2).first().trim()
+        if (garnish.matches(head) || notASide.containsMatchIn(head)) return false
+        return head.split(whitespace).none { condimentEnd.containsMatchIn(it) }
+    }
+
+    private val saladWords = Regex("""salat|slaw|crunch""")
+    private val starchWords = Regex(
+        """kartoffel|pommes|frites|krokette|rösti|gratin|klöße|knödel|reis|nudel|spätzle|spaghetti|penne|farfalle|tortiglioni|totiglioni|couscous|bulgur|grünkern|zartweizen|quinoa|polenta|hirse|gnocchi|püree""",
+    )
+    // "Kräuterpüree" is potato; "Püree aus jungen Erbsen" is a vegetable.
+    private val vegetablePuree = Regex("""erbse|möhre|karotte|gemüse|blumenkohl|brokkoli|broccoli|kürbis|sellerie|pastinake|spinat""")
+
+    /** Salad, starch (potatoes, rice, pasta, grains) or — by default — vegetable. German names. */
+    fun sideKind(name: String): SideKind {
+        val head = name.trim().lowercase().split(sideHeadSplit, limit = 2).first()
+        return when {
+            saladWords.containsMatchIn(head) -> SideKind.Salad
+            "püree" in head && vegetablePuree.containsMatchIn(head) -> SideKind.Vegetable
+            starchWords.containsMatchIn(head) -> SideKind.Starch
+            else -> SideKind.Vegetable
+        }
+    }
+
+    private fun counterKind(md: MealDate): SideKind {
+        val category = md.category.lowercase()
+        return when {
+            courseOf(md) == Course.Salad -> SideKind.Salad
+            "gemüse" in category -> SideKind.Vegetable
+            "stärke" in category -> SideKind.Starch
+            else -> sideKind(md.meals?.cleanTitle ?: md.meals?.title.orEmpty())
+        }
+    }
+
+    /**
+     * The day's sides by kind — Stärkebeilage, Gemüsebeilage, Salat. Sides can
+     * be combined freely, so the mains' real sides join in: at Mensa am Turm
+     * they're merged into the counter of the same kind, at Zentralmensa or
+     * CGiN (no side counters) they form the groups, labelled by [label].
+     * German names: photos and favourites are keyed by them.
+     */
+    fun sideBoard(meals: List<MealDate>, label: (SideKind) -> String): List<SideGroup> {
+        val counters = meals
+            .filter { sectionOf(it) == MenuSection.Sides }
+            .map { SideGroup(displayCategory(it.category), counterKind(it), it, counterOptions(it, Locale.De)) }
+        val listed = counters.flatMapTo(HashSet()) { g -> g.items.map { it.lowercase() } }
+        val fromMenus = menuSides(meals).filter { it.lowercase() !in listed }.groupBy { sideKind(it) }
+        return SideKind.entries.flatMap { kind ->
+            val extra = fromMenus[kind].orEmpty()
+            val ofKind = counters.filter { it.kind == kind }
+            when {
+                ofKind.isNotEmpty() -> listOf(ofKind.first().copy(items = ofKind.first().items + extra)) + ofKind.drop(1)
+                extra.isNotEmpty() -> listOf(SideGroup(label(kind), kind, null, extra))
+                else -> emptyList()
+            }
+        }
+    }
+
+    /** The day's dessert counters with all their options (German names, like [sideBoard]). */
+    fun dessertBoard(meals: List<MealDate>): List<SideGroup> = meals
+        .filter { sectionOf(it) == MenuSection.Desserts }
+        .map { SideGroup(displayCategory(it.category), SideKind.Dessert, it, counterOptions(it, Locale.De)) }
+
+    /**
+     * Every side and dessert you could pick on a day, normalised for
+     * favourite matching — drives the favourite dot in the date strip and the
+     * "next on the plan" line of a favourite side or dessert.
+     */
+    fun pickableItems(meals: List<MealDate>): Set<String> =
+        (sideBoard(meals) { "" } + dessertBoard(meals))
+            .flatMapTo(HashSet()) { g -> g.items.map { it.replace(",", " ").trim().lowercase().replace(whitespace, " ") } }
+
+    /** Real sides of the day's mains, first appearance first, without duplicates. */
+    fun menuSides(meals: List<MealDate>): List<String> = meals
+        .filter { !isCounter(it) }
+        .flatMap { it.meals?.sidesFor(Locale.De).orEmpty() }
+        .filter { isRealSide(it) }
+        .distinctBy { it.trim().lowercase() }
+
+    private val nonSlugChars = Regex("""[^A-Za-z0-9_]+""")
+
+    /** Storage path of a side's photo; the same ASCII-only slug smooth-endpoint writes. */
+    fun sideImagePath(name: String): String =
+        "sides/" + name.trim().replace(nonSlugChars, "_").lowercase() + ".jpg"
 }

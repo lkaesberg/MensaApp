@@ -39,11 +39,14 @@ import com.lkaesberg.mensaapp.Canteen
 import com.lkaesberg.mensaapp.MealDate
 import com.lkaesberg.mensaapp.MealsAppState
 import com.lkaesberg.mensaapp.data.MealEnrichment
+import com.lkaesberg.mensaapp.data.MenuStructure
 import com.lkaesberg.mensaapp.i18n.LocalStrings
 import com.lkaesberg.mensaapp.normalizeFavoriteKey
 import com.lkaesberg.mensaapp.ui.MensaTheme
 import com.lkaesberg.mensaapp.ui.components.MTopBar
+import com.lkaesberg.mensaapp.ui.components.MenuSectionHeader
 import com.lkaesberg.mensaapp.ui.components.Plate
+import com.lkaesberg.mensaapp.ui.components.SidePhoto
 import kotlin.time.Clock
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -58,6 +61,7 @@ fun FavoritesScreen(
     val palette = MensaTheme.palette
     val scope = rememberCoroutineScope()
     val favoriteIds by state.favoritesManager.favorites.collectAsState()
+    val sideFavorites by state.favoritesManager.sideFavorites.collectAsState()
     val history by state.history.collectAsState()
     val upcomingMap by state.upcomingAcrossCanteens.collectAsState()
 
@@ -96,6 +100,17 @@ fun FavoritesScreen(
             )
         }
     }
+    // Favourite sides and desserts with their next day on any plan.
+    val sideRows = remember(sideFavorites, upcomingMap) {
+        val byDay = upcomingMap.entries
+            .filter { it.key.second >= today }
+            .sortedBy { it.key.second }
+            .map { (canteenAndDate, meals) -> canteenAndDate to MenuStructure.pickableItems(meals) }
+        sideFavorites.sortedBy { it.lowercase() }.map { name ->
+            val key = normalizeFavoriteKey(name)
+            name to byDay.firstOrNull { (_, sides) -> key in sides }?.first
+        }
+    }
     val upcoming = favorites.count {
         it.next != null && (it.next.second.toEpochDays() - today.toEpochDays()).toInt() in 0..3
     }
@@ -131,7 +146,7 @@ fun FavoritesScreen(
                 Text(sample, color = Color.White.copy(alpha = 0.9f), fontSize = 11.sp)
             }
         }
-        if (favorites.isEmpty()) {
+        if (favorites.isEmpty() && sideRows.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(40.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -196,6 +211,55 @@ fun FavoritesScreen(
                         }
                         Box(modifier = Modifier.size(28.dp).clickable { state.favoritesManager.toggleFavorite(f.title) }, contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.Star, null, tint = palette.amber, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+                if (sideRows.isNotEmpty()) {
+                    item(key = "sides-header") {
+                        MenuSectionHeader(label = s.favoriteSidesAndDesserts)
+                    }
+                    items(sideRows, key = { "side-${it.first}" }) { (name, next) ->
+                        val nextLabel = next?.let { (canteen, date) ->
+                            val diff = (date.toEpochDays() - today.toEpochDays()).toInt()
+                            val day = when (diff) {
+                                0 -> s.today
+                                1 -> s.tomorrow
+                                else -> "${s.weekdaysShort[(date.dayOfWeek.isoDayNumber - 1).coerceIn(0, 6)]} ${date.dayOfMonth}."
+                            }
+                            "$day · ${canteen.name}"
+                        } ?: s.notScheduled
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(palette.surface)
+                                .border(1.dp, palette.hair, RoundedCornerShape(14.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            SidePhoto(name = name, modifier = Modifier.size(60.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(name, color = palette.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                Row(
+                                    modifier = Modifier.padding(top = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    if (next != null) {
+                                        Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(palette.open))
+                                    }
+                                    Text(
+                                        text = nextLabel,
+                                        color = if (next != null) palette.open else palette.sub,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+                            Box(modifier = Modifier.size(28.dp).clickable { state.favoritesManager.toggleSideFavorite(name) }, contentAlignment = Alignment.Center) {
+                                Icon(Icons.Filled.Star, null, tint = palette.amber, modifier = Modifier.size(18.dp))
+                            }
                         }
                     }
                 }
