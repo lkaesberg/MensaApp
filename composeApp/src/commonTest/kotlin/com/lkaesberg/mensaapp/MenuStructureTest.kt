@@ -1,9 +1,11 @@
 package com.lkaesberg.mensaapp
 
+import com.lkaesberg.mensaapp.data.CanteenStaticData
 import com.lkaesberg.mensaapp.data.Course
 import com.lkaesberg.mensaapp.data.Locale
 import com.lkaesberg.mensaapp.data.MenuSection
 import com.lkaesberg.mensaapp.data.MenuStructure
+import com.lkaesberg.mensaapp.data.PriceResolver
 import com.lkaesberg.mensaapp.data.SideKind
 import com.lkaesberg.mensaapp.i18n.sidesFor
 import kotlin.test.Test
@@ -232,6 +234,16 @@ class MenuStructureTest {
             setOf("butterkartoffeln", "hausgemachte rote grütze mit veganer vanillesauce", "hausgemachter fruchtquark ananas"),
             MenuStructure.pickableItems(day),
         )
+    }
+
+    @Test
+    fun sidePrices_byKindForCanteensThatPublishThem() {
+        val zentral = CanteenStaticData.all.first { it.slug == "zentral" }
+        assertEquals("0,85", PriceResolver.forSideKind(SideKind.Starch, zentral)?.students)
+        assertEquals("1,50", PriceResolver.forSideKind(SideKind.Starch, zentral)?.guests)
+        assertEquals("1,35", PriceResolver.forSideKind(SideKind.Salad, zentral)?.guests)
+        assertEquals(null, PriceResolver.forSideKind(SideKind.Dessert, zentral))
+        assertEquals(null, PriceResolver.forSideKind(SideKind.Starch, CanteenStaticData.all.first { it.slug == "hawk" }))
     }
 
     @Test

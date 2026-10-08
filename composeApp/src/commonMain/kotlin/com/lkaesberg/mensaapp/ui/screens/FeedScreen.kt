@@ -356,15 +356,19 @@ fun FeedScreen(
                             if (section == MenuSection.Sides) {
                                 items(sideGroups, key = { "$period-side-${it.kind}-${it.counter?.id ?: "menus"}" }) { group ->
                                     val counter = group.counter
+                                    val info = state.selectedInfo()
                                     SideGroupCard(
                                         group = group,
                                         favoriteSides = favoriteSides,
                                         onClick = { onOpenSides(pageDate.toString()) },
-                                        priceText = counter
-                                            ?.let { PriceResolver.forMealDate(it, state.selectedInfo()) }
+                                        // A counter has its own price; sides from the menus use
+                                        // the canteen's published side price for their kind.
+                                        priceText = (counter?.let { PriceResolver.forMealDate(it, info) }
+                                            ?: PriceResolver.forSideKind(group.kind, info))
                                             ?.textFor(userRole)?.takeIf { it.isNotBlank() },
-                                        deactivated = counter != null && !keepTodayActive &&
-                                            (counter.deactivatedAt != null || showAsClosed),
+                                        // Same rule as the dish cards: dimmed once the canteen has closed.
+                                        deactivated = !keepTodayActive &&
+                                            (showAsClosed || counter?.deactivatedAt != null),
                                     )
                                 }
                             }

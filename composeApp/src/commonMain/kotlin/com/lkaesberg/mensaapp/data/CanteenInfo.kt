@@ -23,6 +23,13 @@ data class CanteenInfo(
     val distance: String,
     val hours: List<HoursEntry>,
     val fallbackPrices: List<FallbackPrice>,
+    /**
+     * Price of a single side, by kind ("Stärkebeilage", "Gemüse-/Salatbeilage").
+     * The menu API only prices sides that have a counter of their own (Mensa
+     * am Turm); everywhere else the sides come with the dishes but can be
+     * bought on their own too.
+     */
+    val sidePrices: List<FallbackPrice> = emptyList(),
 )
 
 data class HoursEntry(
@@ -62,6 +69,13 @@ object CanteenStaticData {
     private val saturdayClosed = HoursEntry("Sa", "Geschlossen", setOf(DayOfWeek.SATURDAY), null, null)
     private val sundayClosed = HoursEntry("So", "Geschlossen", setOf(DayOfWeek.SUNDAY), null, null)
 
+    // From the canteen pages on studierendenwerk-goettingen.de (Zentralmensa,
+    // Mensa am Turm, CGiN list the same "Beilagen" prices), checked 2026-10-08.
+    private val standardSidePrices = listOf(
+        FallbackPrice("Stärkebeilage", "0,85", "1,30", "1,50"),
+        FallbackPrice("Gemüse-/Salatbeilage", "0,85", "1,15", "1,35"),
+    )
+
     private val standardMenuPrices = listOf(
         FallbackPrice("Menü", "4,20", "6,30", "7,50"),
         FallbackPrice("Vegetarisch/vegan", "3,80", "5,90", "7,10"),
@@ -93,6 +107,7 @@ object CanteenStaticData {
                 sundayClosed,
             ),
             fallbackPrices = standardMenuPrices + FallbackPrice("CampusCurry", "4,50", "6,70", "7,90"),
+            sidePrices = standardSidePrices,
         ),
         CanteenInfo(
             slug = "turm",
@@ -118,6 +133,7 @@ object CanteenStaticData {
                 saturdayClosed, sundayClosed,
             ),
             fallbackPrices = standardMenuPrices,
+            sidePrices = standardSidePrices,
         ),
         CanteenInfo(
             slug = "cgin",
@@ -130,6 +146,7 @@ object CanteenStaticData {
                 saturdayClosed, sundayClosed,
             ),
             fallbackPrices = listOf(FallbackPrice("Menü", "4,20", "6,30", "7,50")),
+            sidePrices = standardSidePrices,
         ),
         CanteenInfo(
             slug = "hawk",

@@ -101,8 +101,9 @@ fun SidesScreen(
         ) {
             groups.forEachIndexed { gi, group ->
                 item(key = "header-$gi", span = { GridItemSpan(maxLineSpan) }) {
-                    val price = group.counter
-                        ?.let { PriceResolver.forMealDate(it, state.selectedInfo()) }
+                    val info = state.selectedInfo()
+                    val price = (group.counter?.let { PriceResolver.forMealDate(it, info) }
+                        ?: PriceResolver.forSideKind(group.kind, info))
                         ?.textFor(userRole)
                         ?.takeIf { it.isNotBlank() }
                     Row(

@@ -55,6 +55,22 @@ object PriceResolver {
      * against `canteen_prices`. Falls back to canteen-level constants for
      * the rare canteens (HAWK fallback) without per-dish data.
      */
+    /**
+     * Price of one side of [kind] at the canteen ([CanteenInfo.sidePrices]);
+     * vegetables and salads share a price. Null where none is published, and
+     * for desserts, which are priced per counter.
+     */
+    fun forSideKind(kind: SideKind, info: CanteenInfo?): ResolvedPrice? {
+        val wanted = when (kind) {
+            SideKind.Starch -> "stärke"
+            SideKind.Vegetable, SideKind.Salad -> "gemüse"
+            SideKind.Dessert -> return null
+        }
+        return info?.sidePrices
+            ?.firstOrNull { wanted in it.category.lowercase() }
+            ?.let { ResolvedPrice(it.students, it.employees, it.guests) }
+    }
+
     fun forMealDate(md: MealDate, info: CanteenInfo?): ResolvedPrice? {
         if (!md.priceStudents.isNullOrBlank() ||
             !md.priceEmployees.isNullOrBlank() ||
