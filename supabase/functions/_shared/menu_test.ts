@@ -191,3 +191,58 @@ Deno.test('photoItemsOf: counter options, real sides of a main, dessert options'
     [],
   );
 });
+
+// Cases seen on 2026-11-26.
+Deno.test('salad counter: a sauce right after the headline belongs to it', () => {
+  assertEquals(
+    parseAccompaniments('vegane Remouladensauce (3,9,f,j), Bohnensalat (9)', 'salad'),
+    { sides: ['vegane Remouladensauce'], alternatives: ['Bohnensalat'] },
+  );
+});
+
+Deno.test('side counter: a comma inside one description is not a new option', () => {
+  assertEquals(
+    parseAccompaniments(
+      'Veganer würziger grüner Spargel mit Cocktailtomaten, Orangen und Cashew-Kernen (1,h,h.4,j,k), Broccoligemüse mit veganer Sauce Hollandaise',
+      'side',
+    ).alternatives,
+    ['Veganer würziger grüner Spargel mit Cocktailtomaten, Orangen und Cashew-Kernen', 'Broccoligemüse mit veganer Sauce Hollandaise'],
+  );
+});
+
+Deno.test('dessert: desserts listed without "oder" are still separate options', () => {
+  assertEquals(
+    parseAccompaniments(
+      'mit, frischen Johannisbeeren, Hausgemachter Fruchtquark Waldbeeren (g), mit, vegane Schokoraspeln (f), Haselnussjoghurt (g,h.2,h), mit, Oreo (a,a.1,f)',
+      'dessert',
+    ),
+    {
+      sides: ['frischen Johannisbeeren'],
+      alternatives: ['Hausgemachter Fruchtquark Waldbeeren mit vegane Schokoraspeln', 'Haselnussjoghurt mit Oreo'],
+    },
+  );
+  assertEquals(
+    parseAccompaniments('mit, veganer Schlagcreme, veganes Schokomousse (a.3,a), mit (a.1,a), Mangoragout (3)', 'dessert'),
+    { sides: ['veganer Schlagcreme'], alternatives: ['veganes Schokomousse mit Mangoragout'] },
+  );
+});
+
+Deno.test('isRealSide: dish-name continuations and meat add-ons are not sides', () => {
+  assertEquals(isRealSide('Utrechter Art mit Champignons Tomaten und Gouda überbacken mit cremiger Kräutersauce'), false);
+  assertEquals(isRealSide('Hähnchen mit Mangochutney mit Koriander'), false);
+  assertEquals(isRealSide('Rosenkohlröschen mit Speck'), true);
+});
+
+Deno.test('photoItemsOf: "A oder B" in a dish offers two sides; sauces at a counter are dropped', () => {
+  assertEquals(
+    photoItemsOf({ course: 'main', clean_title: 'Knusperstäbchen', title: 'x', alternatives: [],
+      sides: ['Gemüse Kräutersauce', 'Kartoffelpüree mit Röstzwiebeln oder Bulgur mit Quinoa und Minze', 'Selleriesalat mit Schmand'] })
+      .map((i) => i.name),
+    ['Kartoffelpüree mit Röstzwiebeln', 'Bulgur mit Quinoa und Minze', 'Selleriesalat mit Schmand'],
+  );
+  assertEquals(
+    photoItemsOf({ course: 'side', clean_title: 'Pommes frites', title: 'x', sides: [], alternatives: ['vegane Remouladensauce', 'Reis'] })
+      .map((i) => i.name),
+    ['Pommes frites', 'Reis'],
+  );
+});

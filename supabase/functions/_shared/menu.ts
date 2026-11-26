@@ -72,16 +72,25 @@ const WORDS: Record<Lang, Record<Exclude<Connector, 'extra'>, string>> = {
 const LEADING_CONNECTOR_RE = /^(mit|with|oder|or|und|and|auf|on|zusätzlich|additional)\s+(.+)$/i;
 // Inline alternative inside one comma token: "Ziegenkäse-Sauce oder Tomaten-Sugo".
 const INLINE_OR_RE = /\s+(?:oder|or)\s+/i;
-// A topping that belongs to the option before it on a side/salad counter
-// ("Blattsalatmix, Frenchdressing", "Penne Rigate, Kräuterpesto").
-const CONDIMENT_RE = /(dressing|vinaigrette|pesto|dip)\b/i;
 // In a main's side list only dressings are folded into the salad before them;
 // a dip or pesto there is usually meant for the main itself.
 const DRESSING_RE = /(dressing|vinaigrette)\b/i;
 const SALAD_RE = /salat|salad|slaw/i;
-// After "und" in a dessert list: a standalone dessert rather than another topping.
+// In a dessert list, a standalone dessert rather than another topping.
 const DESSERT_NOUN_RE =
   /dessert|joghurt|yog(h)?urt|quark|pudding|creme|cream|mousse|kuchen|cake|grütze|kompott|compote|götterspeise|jelly|jello|salat|salad|brei|porridge/i;
+const TOPPING_RE = /schlagcreme|sahne|topping|sauce|soße|raspel|streusel|röllchen|perlen|chips/i;
+
+/** "Haselnussjoghurt mit Oreo" is a dessert of its own; "veganer Schlagcreme" is a topping. */
+function isStandaloneDessert(text: string): boolean {
+  const head = text.split(/\s+(?:mit|with)\s+/i)[0];
+  return DESSERT_NOUN_RE.test(head) && !TOPPING_RE.test(head);
+}
+
+/** "Orangen und Cashew-Kernen" after "Spargel mit Cocktailtomaten" — a comma inside one description. */
+function continuesPrevious(prev: string | undefined, text: string): boolean {
+  return !!prev && /\s(mit|with)\s/i.test(prev) && /\s(und|and)\s/i.test(text) && text.split(/\s+/).length <= 4;
+}
 
 type Token = { kind: 'item'; text: string } | { kind: 'conn'; c: Connector; word: string };
 
@@ -130,12 +139,7 @@ export function parseAccompaniments(
   const w = WORDS[lang];
   const tokens = tokenize(raw);
 
-  // A dessert line without any "oder" is just the dessert plus its toppings.
-  const mode = course === 'side' || course === 'salad'
-    ? 'counter'
-    : course === 'dessert' && tokens.some((t) => t.kind === 'conn' && t.c === 'or')
-    ? 'dessert'
-    : 'main';
+  const mode = course === 'side' || course === 'salad' ? 'counter' : course === 'dessert' ? 'dessert' : 'main';
 
   // Where the next item goes; `glue` extends the last item written there.
   let target: string[] = sides;
@@ -193,31 +197,39 @@ export function parseAccompaniments(
     }
 
     if (mode === 'dessert') {
-      if (first && conn === 'with') {
+      const standalone = isStandaloneDessert(text);
+      if (first && (conn === 'with' || (!conn && !standalone))) {
         sides.push(text); // "mit veganer Vanillesauce" tops the headline dessert
-      } else if (first || conn === 'or' || (conn === 'and' && DESSERT_NOUN_RE.test(text))) {
-        // New option. "und" usually adds a topping, but "…, und, Kokos-Joghurt
-        // Dessert" introduces another dessert.
+      } else if (first || conn === 'or' || ((conn === 'and' || !conn) && standalone)) {
+        // New option. Upstream often drops the "oder" between desserts
+        // ("…, Hausgemachter Fruchtquark, mit, Schokoraspeln, Haselnussjoghurt"),
+        // so a standalone dessert after a plain comma or "und" starts one too.
         target = alternatives;
         target.push(text);
       } else if (conn === 'with' || conn === 'and') {
-        glue(` ${w[conn]} `, text);
-      } else {
-        glue(', ', text); // "Schokopudding mit Vanillesauce, Mandelblättchen"
+        if (!glue(` ${w[conn]} `, text)) target.push(text);
+      } else if (!glue(', ', text)) {
+        target.push(text); // "Schokopudding mit Vanillesauce, Mandelblättchen"
       }
       continue;
     }
 
-    // Side / salad counter: every item is an option of its own.
-    if (first && conn === 'with') {
+    // Side / salad counter: every item is an option of its own, except
+    // sauces, dressings and garnish, which belong to the option before them
+    // ("Blattsalatmix, Frenchdressing") — or to the headline when they come
+    // first (Salat: "Blattsalatmix" + "vegane Remouladensauce, Bohnensalat").
+    if (first && (conn === 'with' || (!conn && !isRealSide(text)))) {
       sides.push(text);
       continue;
     }
     target = alternatives;
+    const prev = target[target.length - 1];
     if (conn === 'with' || conn === 'and') {
       if (!glue(` ${w[conn]} `, text)) target.push(text);
-    } else if (!conn && CONDIMENT_RE.test(text) && target.length > 0) {
-      glue(` ${w.with} `, text); // "Blattsalatmix, Frenchdressing"
+    } else if (!conn && prev !== undefined && !isRealSide(text)) {
+      glue(` ${w.with} `, text);
+    } else if (!conn && continuesPrevious(prev, text)) {
+      glue(', ', text);
     } else {
       target.push(text);
     }
@@ -254,13 +266,17 @@ const CONDIMENT_END_RE =
 const GARNISH_RE =
   /^(frisch[a-zäöüß]*\s+)?(petersilie|schnittlauch|koriander|kresse|rucola|minze|zitronenecke|zitronen?|limetten?[a-zäöüß]*|frühlingszwiebel[a-zäöüß]*|röstzwiebeln|tomaten|gurken|in)$/;
 const NOT_A_SIDE_RE = /sprossen|parmesan|umlegt|dessert|brötchen|brot|baguette|ciabatta|naan/;
+// Not sides either: the rest of a dish's name ("Utrechter Art mit … überbacken")
+// and meat or fish add-ons ("Hähnchen mit Mangochutney" at Teppan Yaki).
+const DISH_PART_RE =
+  /(^|\s)art(\s|$)|überbacken|hähnchen|hühnchen|chicken|pute|schwein|rind|lamm|lachs|fisch|würstchen|bratwurst|speck|schinken|frikadelle|schnitzel|gyros|döner|hackfleisch/;
 const SIDE_HEAD_SPLIT_RE = /\s+(?:mit|in)\s+/;
 
 export function isRealSide(name: string): boolean {
   const t = name.trim().toLowerCase();
   if (!t || /^zusätzlich(\s|$)/.test(t)) return false;
   const head = t.split(SIDE_HEAD_SPLIT_RE)[0].trim();
-  if (GARNISH_RE.test(head) || NOT_A_SIDE_RE.test(head)) return false;
+  if (GARNISH_RE.test(head) || NOT_A_SIDE_RE.test(head) || DISH_PART_RE.test(head)) return false;
   return !head.split(/\s+/).some((w) => CONDIMENT_END_RE.test(w));
 }
 
@@ -291,14 +307,18 @@ export function photoItemsOf(meal: {
     case 'dessert': {
       const head = sides.length ? `${title} mit ${sides.join(', ')}` : title;
       const course = meal.course === 'dessert' ? 'dessert' : null;
-      return [...new Set([head, ...(meal.alternatives ?? [])])]
+      // A counter's other options are sides; a sauce that slipped in is not.
+      const options = meal.course === 'dessert' ? meal.alternatives ?? [] : (meal.alternatives ?? []).filter(isRealSide);
+      return [...new Set([head, ...options])]
         .filter(Boolean)
         .map((name) => ({ name, course: course ?? (/salat|slaw|salad/i.test(name) ? 'salad' : 'side') }));
     }
     default:
       // A weighed buffet lists what's on it (pastas, sauces), not sides.
       if (isWeighedBuffet(title)) return [];
-      return sides.filter(isRealSide).map((name) => ({ name, course: /salat|slaw|salad/i.test(name) ? 'salad' : 'side' }));
+      // "Kartoffelpüree mit Röstzwiebeln oder Bulgur mit Quinoa" offers two sides.
+      return sides.flatMap((side) => side.split(/\s+oder\s+/)).filter(isRealSide)
+        .map((name) => ({ name, course: /salat|slaw|salad/i.test(name) ? 'salad' : 'side' }));
   }
 }
 

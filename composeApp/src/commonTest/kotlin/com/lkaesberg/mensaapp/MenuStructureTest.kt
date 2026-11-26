@@ -260,6 +260,28 @@ class MenuStructureTest {
     }
 
     @Test
+    fun sides_dropDishPartsSaucesAtCountersAndSplitChoices() {
+        // Cases from 2026-11-26.
+        assertFalse(MenuStructure.isRealSide("Utrechter Art mit Champignons Tomaten und Gouda überbacken mit cremiger Kräutersauce"))
+        assertFalse(MenuStructure.isRealSide("Hähnchen mit Mangochutney mit Koriander"))
+        assertTrue(MenuStructure.isRealSide("Rosenkohlröschen mit Speck"))
+        val day = listOf(
+            md("Vegetarisch", "Knusperstäbchen", 20,
+                sides = listOf("Gemüse Kräutersauce", "Kartoffelpüree mit Röstzwiebeln oder Bulgur mit Quinoa und Minze")),
+            md("Salat", "Blattsalatmix", 190, course = "salad",
+                sides = emptyList(), alternatives = listOf("vegane Remouladensauce", "Bohnensalat")),
+        )
+        assertEquals(
+            listOf("Kartoffelpüree mit Röstzwiebeln", "Bulgur mit Quinoa und Minze"),
+            MenuStructure.menuSides(day),
+        )
+        assertEquals(
+            listOf("Blattsalatmix", "Bohnensalat"),
+            MenuStructure.sideBoard(day) { it.name }.single { it.kind == SideKind.Salad }.items,
+        )
+    }
+
+    @Test
     fun sideImagePath_matchesBackendSlug() {
         // smooth-endpoint: name.trim().replace(/\W+/g, '_').toLowerCase() — ASCII-only \W.
         assertEquals("sides/senf_kartoffeln.jpg", MenuStructure.sideImagePath("Senf-Kartoffeln"))

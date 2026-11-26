@@ -189,6 +189,10 @@ object MenuStructure {
         """^(frisch[a-zäöüß]*\s+)?(petersilie|schnittlauch|koriander|kresse|rucola|minze|zitronenecke|zitronen?|limetten?[a-zäöüß]*|frühlingszwiebel[a-zäöüß]*|röstzwiebeln|tomaten|gurken|in)$""",
     )
     private val notASide = Regex("""sprossen|parmesan|umlegt|dessert|brötchen|brot|baguette|ciabatta|naan""")
+    // The rest of a dish's name ("Utrechter Art mit … überbacken") and meat or fish add-ons.
+    private val dishPart = Regex(
+        """(^|\s)art(\s|$)|überbacken|hähnchen|hühnchen|chicken|pute|schwein|rind|lamm|lachs|fisch|würstchen|bratwurst|speck|schinken|frikadelle|schnitzel|gyros|döner|hackfleisch""",
+    )
     private val sideHeadSplit = Regex("""\s+(mit|in)\s+""")
     private val extraPrefix = Regex("""^zusätzlich(\s|$)""")
 
@@ -197,7 +201,7 @@ object MenuStructure {
         val t = name.trim().lowercase()
         if (t.isEmpty() || extraPrefix.containsMatchIn(t)) return false
         val head = t.split(sideHeadSplit, limit = 2).first().trim()
-        if (garnish.matches(head) || notASide.containsMatchIn(head)) return false
+        if (garnish.matches(head) || notASide.containsMatchIn(head) || dishPart.containsMatchIn(head)) return false
         return head.split(whitespace).none { condimentEnd.containsMatchIn(it) }
     }
 
@@ -239,7 +243,13 @@ object MenuStructure {
     fun sideBoard(meals: List<MealDate>, label: (SideKind) -> String): List<SideGroup> {
         val counters = meals
             .filter { sectionOf(it) == MenuSection.Sides }
-            .map { SideGroup(displayCategory(it.category), counterKind(it), it, counterOptions(it, Locale.De)) }
+            .map { md ->
+                // The headline stays; a sauce among the other options (rows synced
+                // before 2026-11-26 could still carry one) doesn't belong in the list.
+                val options = counterOptions(md, Locale.De)
+                val items = options.take(1) + options.drop(1).filter { isRealSide(it) }
+                SideGroup(displayCategory(md.category), counterKind(md), md, items)
+            }
         val listed = counters.flatMapTo(HashSet()) { g -> g.items.map { it.lowercase() } }
         val fromMenus = menuSides(meals).filter { it.lowercase() !in listed }.groupBy { sideKind(it) }
         return SideKind.entries.flatMap { kind ->
@@ -284,8 +294,12 @@ object MenuStructure {
     fun menuSides(meals: List<MealDate>): List<String> = meals
         .filter { !isCounter(it) && !isPricedPer100g(it) }
         .flatMap { it.meals?.sidesFor(Locale.De).orEmpty() }
+        // "Kartoffelpüree mit Röstzwiebeln oder Bulgur mit Quinoa" offers two sides.
+        .flatMap { it.split(orSeparator) }
         .filter { isRealSide(it) }
         .distinctBy { it.trim().lowercase() }
+
+    private val orSeparator = Regex("""\s+oder\s+""")
 
     private val nonSlugChars = Regex("""[^A-Za-z0-9_]+""")
 

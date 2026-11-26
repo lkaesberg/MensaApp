@@ -16,18 +16,32 @@
 // grouping on it generated a separate photo per code variant. Dishes on the
 // plan in the next week go first, so today's menu isn't the one waiting.
 //
-// Expected env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY,
-// MAX_IMAGES, MAX_SIDE_IMAGES (optional per-run defaults).
+// Each run works through one queue — this week's dishes, then the sides and
+// desserts, then older dishes — two images at a time, and stops starting new
+// ones after a time budget so it finishes inside the edge runtime's
+// wall-clock limit; whatever is left goes to the next run.
+//
+// The model is configurable: gpt-image-1 was shut down by OpenAI on
+// 2026-10-23, and from then on every run failed and nothing new got a photo.
+//
+// Expected env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY.
+// Optional: IMAGE_MODEL (default gpt-image-2.6-flare), IMAGE_QUALITY (low),
+// IMAGE_CONCURRENCY (2), IMAGE_RUN_BUDGET_MS (110000), MAX_IMAGES,
+// MAX_SIDE_IMAGES (per-run defaults, 8 each).
 
 // deno-lint-ignore-file no-explicit-any
 import OpenAI from 'https://deno.land/x/openai@v4.24.0/mod.ts';
 import { Image } from 'https://deno.land/x/imagescript@1.2.15/mod.ts';
-import { log, sleep, supabase } from '../_shared/supabase.ts';
+import { log, mapWithConcurrency, sleep, supabase } from '../_shared/supabase.ts';
 import { stripAllergenParens } from '../_shared/text.ts';
 import { buildImagePrompt } from '../_shared/image_prompt.ts';
 import { isNonDishEntry, PhotoItem, photoItemsOf, sideImageFile } from '../_shared/menu.ts';
 
-const DELAY_PER_IMAGE_MS = 500; // ≈2 image requests / second
+const IMAGE_MODEL = Deno.env.get('IMAGE_MODEL') ?? 'gpt-image-2.6-flare';
+const IMAGE_QUALITY = Deno.env.get('IMAGE_QUALITY') ?? 'low';
+// Two at a time stays well under the lowest tier's 20 images/minute.
+const CONCURRENCY = Number(Deno.env.get('IMAGE_CONCURRENCY') ?? '2');
+const RUN_BUDGET_MS = Number(Deno.env.get('IMAGE_RUN_BUDGET_MS') ?? '110000');
 const UPCOMING_DAYS = 7;
 const BUCKET = 'mensa-food';
 const SIDE_FOLDER = 'sides';
@@ -47,12 +61,18 @@ interface Group {
   upcoming: boolean;
 }
 
+/** Rate limits, server errors and network failures are worth another try; a 4xx (unknown model, rejected prompt) is not. */
+function isTransient(err: any): boolean {
+  const status = err?.status ?? err?.response?.status;
+  return status === undefined || status === 429 || status >= 500;
+}
+
 async function retry<T>(fn: () => Promise<T>, retries = 2, delay = 2_000, tag = 'retry'): Promise<T> {
   try {
     return await fn();
   } catch (err) {
     log(`[${tag}] failed (${retries} left)`, err);
-    if (retries === 0) throw err;
+    if (retries === 0 || !isTransient(err)) throw err;
     await sleep(delay);
     return retry(fn, retries - 1, delay * 2, tag);
   }
@@ -109,10 +129,10 @@ async function loadGroups(limit: number): Promise<Group[]> {
     .slice(0, limit);
 }
 
-/** Generate, shrink and upload one photo; returns its size in bytes. */
-async function renderAndUpload(openai: OpenAI, prompt: string, path: string, tag: string): Promise<number> {
-  const imgResp = await retry(
-    () => openai.images.generate({ model: 'gpt-image-1', prompt, n: 1, size: '1024x1024', quality: 'low' } as any),
+/** Generate, shrink and upload one photo; returns a short note for the log (size, tokens billed). */
+async function renderAndUpload(openai: OpenAI, prompt: string, path: string, tag: string): Promise<string> {
+  const imgResp: any = await retry(
+    () => openai.images.generate({ model: IMAGE_MODEL, prompt, n: 1, size: '1024x1024', quality: IMAGE_QUALITY } as any),
     2,
     2_000,
     `openai-${tag}`,
@@ -133,7 +153,9 @@ async function renderAndUpload(openai: OpenAI, prompt: string, path: string, tag
     upsert: true,
   });
   if (upRes.error) throw upRes.error;
-  return jpeg.length;
+  // OpenAI prices the 2.x image models per token; this is what each photo actually costs.
+  const tokens = imgResp.usage?.output_tokens;
+  return `${(jpeg.length / 1024).toFixed(1)}kb${tokens ? `, ${tokens} output tokens` : ''}`;
 }
 
 async function generate(openai: OpenAI, group: Group): Promise<string> {
@@ -147,14 +169,14 @@ async function generate(openai: OpenAI, group: Group): Promise<string> {
   if (!prompt) throw new Error('not a dish — skipped');
 
   const path = `generic/${imageSlug(group.core)}.jpg`;
-  const size = await renderAndUpload(openai, prompt, path, group.core);
+  const note = await renderAndUpload(openai, prompt, path, group.core);
 
   const { error } = await supabase
     .from('meals')
     .update({ image_path_generic: path })
     .in('id', group.meals.map((m) => m.id));
   if (error) throw error;
-  log(`BG: ✔ "${group.core}" [${rep.course ?? 'main?'}] (${(size / 1024).toFixed(1)}kb)`);
+  log(`BG: ✔ "${group.core}" [${rep.course ?? 'main?'}] (${note})`);
   return path;
 }
 
@@ -205,8 +227,8 @@ async function loadMissingSides(limit: number): Promise<PhotoItem[]> {
 async function generateSide(openai: OpenAI, item: PhotoItem): Promise<void> {
   const prompt = buildImagePrompt({ title: item.name, course: item.course });
   if (!prompt) throw new Error('not a dish — skipped');
-  const size = await renderAndUpload(openai, prompt, `${SIDE_FOLDER}/${sideImageFile(item.name)}`, item.name);
-  log(`BG: ✔ ${item.course} "${item.name}" (${(size / 1024).toFixed(1)}kb)`);
+  const note = await renderAndUpload(openai, prompt, `${SIDE_FOLDER}/${sideImageFile(item.name)}`, item.name);
+  log(`BG: ✔ ${item.course} "${item.name}" (${note})`);
 }
 
 Deno.serve(async (req) => {
@@ -238,35 +260,43 @@ Deno.serve(async (req) => {
 
   const bgPromise = (async () => {
     const openai = new OpenAI({ apiKey: openaiKey });
-    log(`BG: starting, ${groups.length} titles`);
+    // What people see this week first; dishes no longer on any plan last.
+    const jobs: Array<{ label: string; run: () => Promise<unknown> }> = [
+      ...groups.filter((g) => g.upcoming).map((g) => ({ label: `"${g.core}"`, run: () => generate(openai, g) })),
+      ...sides.map((s) => ({ label: `${s.course} "${s.name}"`, run: () => generateSide(openai, s) })),
+      ...groups.filter((g) => !g.upcoming).map((g) => ({ label: `"${g.core}"`, run: () => generate(openai, g) })),
+    ];
+    log(`BG: starting ${jobs.length} images with ${IMAGE_MODEL} (${IMAGE_QUALITY})`);
+    const deadline = Date.now() + RUN_BUDGET_MS;
     let ok = 0;
-    for (const group of groups) {
+    let failed = 0;
+    let deferred = 0;
+    await mapWithConcurrency(jobs, CONCURRENCY, async (job) => {
+      if (Date.now() > deadline) {
+        deferred++;
+        return;
+      }
       try {
-        await generate(openai, group);
+        await job.run();
         ok++;
       } catch (err) {
-        log(`BG: ✖ "${group.core}"`, err);
+        failed++;
+        log(`BG: ✖ ${job.label}`, err);
       }
-      await sleep(DELAY_PER_IMAGE_MS);
-    }
-    let sidesOk = 0;
-    for (const item of sides) {
-      try {
-        await generateSide(openai, item);
-        sidesOk++;
-      } catch (err) {
-        log(`BG: ✖ ${item.course} "${item.name}"`, err);
-      }
-      await sleep(DELAY_PER_IMAGE_MS);
-    }
-    log(`BG: finished run (${ok}/${groups.length} meals, ${sidesOk}/${sides.length} sides ok)`);
+    });
+    log(`BG: finished run — ${ok} ok, ${failed} failed, ${deferred} left for the next run`);
   })();
 
   // Keep the runtime alive for the background work but answer now.
   // @ts-ignore: EdgeRuntime is provided by Supabase
   EdgeRuntime?.waitUntil?.(bgPromise);
   return new Response(
-    JSON.stringify({ accepted: true, processing: groups.map((g) => g.core), sides: sides.map((s) => s.name) }),
+    JSON.stringify({
+      accepted: true,
+      model: IMAGE_MODEL,
+      processing: groups.map((g) => g.core),
+      sides: sides.map((s) => s.name),
+    }),
     { status: 202, headers: { 'Content-Type': 'application/json' } },
   );
 });
